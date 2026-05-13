@@ -184,12 +184,8 @@ export function AppSidebar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem>
-                  <Wallet />
-                  <span>1000 USDC</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem>
                   <CreditCard />
-                  <span>1000.000 Credits</span>
+                  <span>1000.000 OG</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem>
                   <LogOut />

@@ -192,7 +192,7 @@ const ChatInput = () => {
   }, []);
 
   return (
-    <div className="size-full mx-auto max-w-4xl flex flex-col h-full justify-center items-center gap-10">
+    <div className="size-full mx-auto flex flex-col h-full justify-center items-center gap-10">
       <div className="flex items-end text-4xl gap-2">
         <span>Welcome to</span>
         <SparklesText className="text-5xl">Langclaw,</SparklesText>
