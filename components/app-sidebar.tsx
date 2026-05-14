@@ -66,7 +66,9 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
-        <h1 className="text-lg font-bold mb-5">Langclaw.ai</h1>
+        <Link href={"/"}>
+          <span className="text-lg font-bold mb-5">Langclaw.ai</span>
+        </Link>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
             <Link href="/chat">

@@ -13,7 +13,9 @@ export default function Header() {
           <Link href={"/"}>Documentation</Link>
         </p>
       </nav>
-      <Button className="text-end">TRY LANGCLAW</Button>
+      <Button className="text-end" asChild>
+        <Link href={"/chat"}>TRY LANGCLAW</Link>
+      </Button>
     </header>
   );
 }
