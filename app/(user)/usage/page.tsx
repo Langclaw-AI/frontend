@@ -5,7 +5,7 @@ import React from "react";
 
 export default function page() {
   return (
-    <div className="py-10 space-y-5">
+    <div className="space-y-10">
       <Balance />
       <MonthlyUsage />
       <DetailUsage />

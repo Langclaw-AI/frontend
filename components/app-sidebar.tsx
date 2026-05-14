@@ -69,42 +69,42 @@ export function AppSidebar() {
         <h1 className="text-lg font-bold mb-5">Langclaw.ai</h1>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
-            <a href="#">
+            <Link href="/chat">
               <CircleFadingPlus />
               <span>New Chat</span>
-            </a>
+            </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
-            <a href="#">
+            <Link href="/task">
               <CalendarSync />
               <span>Automatation Task</span>
-            </a>
+            </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
-            <a href="#">
+            <Link href="/usage">
               <Database />
               <span>Usage</span>
-            </a>
+            </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
-            <a href="#">
+            <Link href="/key">
               <Cable />
               <span>API</span>
-            </a>
+            </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
-            <a href="#">
+            <Link href="/memory">
               <Cpu />
               <span>Memory</span>
-            </a>
+            </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
