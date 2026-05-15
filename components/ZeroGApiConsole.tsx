@@ -60,6 +60,7 @@ import {
   getZeroGAsyncJob,
   listZeroGModels,
   listZeroGProviders,
+  readFriendlyError,
   streamZeroGChatCompletion,
   submitZeroGAsyncImage,
   transcribeZeroGAudio,
@@ -86,7 +87,8 @@ const defaultMessage = "Give me one concise product idea for 0G builders.";
 const defaultImagePrompt = "A clean dashboard for decentralized AI usage billing";
 
 export default function ZeroGApiConsole() {
-  const { getWalletAuth, isConnected, isSigning } = useWalletSession();
+  const { getWalletAuth, isConnected, isSigning, openWalletModal } =
+    useWalletSession();
   const [models, setModels] = useState<RouterModel[]>([]);
   const [loading, setLoading] = useState<LoadingKey>("");
   const [error, setError] = useState("");
@@ -144,7 +146,7 @@ export default function ZeroGApiConsole() {
   };
 
   const reportError = (err: unknown, fallback: string) => {
-    showError(err instanceof Error ? err.message : fallback);
+    showError(readFriendlyError(err, fallback));
   };
 
   const refreshModels = async (silent = false) => {
@@ -181,7 +183,8 @@ export default function ZeroGApiConsole() {
 
   const requireWallet = async () => {
     if (!isConnected) {
-      throw new Error("Connect wallet first.");
+      openWalletModal();
+      throw new Error("Choose a wallet to continue.");
     }
 
     return getWalletAuth();
@@ -390,7 +393,7 @@ export default function ZeroGApiConsole() {
         <div>
           <h1 className="font-semibold text-2xl">API Console</h1>
           <p className="text-muted-foreground text-sm">
-            0G router, wallet billing, and admin endpoints.
+            Test models, generate media, and inspect account activity.
           </p>
         </div>
         <Button
@@ -411,7 +414,7 @@ export default function ZeroGApiConsole() {
       {error && (
         <Alert variant="destructive">
           <AlertCircleIcon className="size-4" />
-          <AlertTitle>Endpoint error</AlertTitle>
+          <AlertTitle>Something needs attention</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -740,7 +743,7 @@ export default function ZeroGApiConsole() {
       {!isConnected && (
         <div className="flex items-center gap-2 text-muted-foreground text-sm">
           <Badge variant="outline">Wallet required</Badge>
-          Inference endpoints reserve usage from the connected wallet.
+          Choose a wallet before running paid requests.
         </div>
       )}
     </div>

@@ -27,7 +27,9 @@ import {
   Database,
   LogOut,
   MessagesSquare,
-  Search,
+  MoreHorizontal,
+  PinIcon,
+  PinOffIcon,
   Settings,
   Trash2,
   User2,
@@ -60,8 +62,10 @@ import {
   checkBackendHealth,
   deleteChatSession,
   dispatchChatSessionsUpdated,
+  getChatSession,
   listChatSessions,
   type ChatSession,
+  upsertChatSession,
 } from "@/lib/signalgraph-api";
 import {
   useWalletSession,
@@ -169,6 +173,41 @@ export function AppSidebar() {
     [getWalletAuth],
   );
 
+  const handleTogglePinSession = useCallback(
+    async (session: ChatSession) => {
+      try {
+        const wallet = await getWalletAuth();
+        const fullSession = await getChatSession(wallet, session.id);
+
+        if (!fullSession) {
+          throw new Error("Chat was not found.");
+        }
+
+        const nextSession = {
+          ...fullSession,
+          pinned: !session.pinned,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await upsertChatSession(wallet, nextSession);
+        setSessions((current) =>
+          current.map((item) =>
+            item.id === session.id
+              ? { ...item, pinned: nextSession.pinned }
+              : item,
+          ),
+        );
+        dispatchChatSessionsUpdated();
+        toast.success(nextSession.pinned ? "Chat pinned" : "Chat unpinned");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Unable to update chat.",
+        );
+      }
+    },
+    [getWalletAuth],
+  );
+
   // if (isReconnecting) {
   //   <p>hai</p>;
   // }
@@ -218,14 +257,6 @@ export function AppSidebar() {
             <Link href="/chat">
               <CircleFadingPlus />
               <span>New Chat</span>
-            </Link>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton asChild>
-            <Link href="/discover">
-              <Search />
-              <span>Discovery</span>
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -289,6 +320,7 @@ export function AppSidebar() {
                     }
                     isLoading={isLoadingSessions}
                     onDelete={handleDeleteSession}
+                    onTogglePin={handleTogglePinSession}
                     sessions={pinnedSessions}
                   />
                 </SidebarMenu>
@@ -315,6 +347,7 @@ export function AppSidebar() {
                     }
                     isLoading={isLoadingSessions}
                     onDelete={handleDeleteSession}
+                    onTogglePin={handleTogglePinSession}
                     sessions={recentSessions}
                   />
                 </SidebarMenu>
@@ -374,11 +407,13 @@ function SessionMenuItems({
   emptyLabel,
   isLoading,
   onDelete,
+  onTogglePin,
   sessions,
 }: {
   emptyLabel: string;
   isLoading: boolean;
   onDelete: (sessionId: string) => Promise<void>;
+  onTogglePin: (session: ChatSession) => Promise<void>;
   sessions: ChatSession[];
 }) {
   if (isLoading) {
@@ -407,17 +442,29 @@ function SessionMenuItems({
           <span>{session.title}</span>
         </Link>
       </SidebarMenuButton>
-      <SidebarMenuAction
-        aria-label={`Delete ${session.title}`}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void onDelete(session.id);
-        }}
-        showOnHover
-      >
-        <Trash2 />
-      </SidebarMenuAction>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuAction
+            aria-label={`Open actions for ${session.title}`}
+            showOnHover
+          >
+            <MoreHorizontal />
+          </SidebarMenuAction>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="right">
+          <DropdownMenuItem onClick={() => void onTogglePin(session)}>
+            {session.pinned ? <PinOffIcon /> : <PinIcon />}
+            <span>{session.pinned ? "Unpin" : "Pin"}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void onDelete(session.id)}
+            variant="destructive"
+          >
+            <Trash2 />
+            <span>Delete</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </SidebarMenuItem>
   ));
 }

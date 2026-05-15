@@ -35,6 +35,7 @@ import { useRouter } from "next/navigation";
 import { createChatSession, savePendingPrompt } from "@/lib/chat-utils";
 import {
   dispatchChatSessionsUpdated,
+  readFriendlyError,
   upsertChatSession,
 } from "@/lib/signalgraph-api";
 import { useWalletSession } from "@/hooks/use-wallet-session";
@@ -122,7 +123,8 @@ function SpeechTranscriptionPreview({
 
 const ChatInput = () => {
   const router = useRouter();
-  const { getWalletAuth, isConnected, isSigning } = useWalletSession();
+  const { getWalletAuth, isConnected, isSigning, openWalletModal } =
+    useWalletSession();
   const { chatModels, error: modelsError, isLoading: isLoadingModels } =
     useRouterModels();
   const [selectedModel, setSelectedModel] = useState(DEFAULT_CHAT_MODEL_ID);
@@ -173,9 +175,10 @@ const ChatInput = () => {
       }
 
       if (!isConnected) {
+        openWalletModal();
         showError(
           setError,
-          "Connect wallet first so Langclaw can create a saved chat session.",
+          "Choose a wallet to start chatting.",
         );
         setStatus("error");
         return;
@@ -208,9 +211,7 @@ const ChatInput = () => {
       } catch (err) {
         showError(
           setError,
-          err instanceof Error
-            ? err.message
-            : "Unable to start the chat session.",
+          readFriendlyError(err, "Unable to start the chat session."),
         );
         setStatus("error");
 
@@ -219,7 +220,14 @@ const ChatInput = () => {
         }, STREAMING_TIMEOUT);
       }
     },
-    [getWalletAuth, isConnected, researchTrend, router, selectedModel],
+    [
+      getWalletAuth,
+      isConnected,
+      openWalletModal,
+      researchTrend,
+      router,
+      selectedModel,
+    ],
   );
 
   return (

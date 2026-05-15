@@ -93,6 +93,7 @@ import type { Experimental_TranscriptionResult } from "ai";
 import {
   dispatchChatSessionsUpdated,
   getChatSession,
+  readFriendlyError,
   type RouterModel,
   type ChatSession,
   type StoredChatMessage,
@@ -125,7 +126,8 @@ const CHAT_SUGGESTIONS = [
 const BACKEND_CONTEXT_WINDOW = 32_000;
 
 const Chat = ({ sessionId }: ChatProps) => {
-  const { getWalletAuth, isConnected, isSigning } = useWalletSession();
+  const { getWalletAuth, isConnected, isSigning, openWalletModal } =
+    useWalletSession();
   const { chatModels, error: modelsError } = useRouterModels();
   const transport = useMemo(() => createLangclawChatTransport(), []);
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -165,7 +167,8 @@ const Chat = ({ sessionId }: ChatProps) => {
   const persistSession = useCallback(
     async (nextSession: ChatSession) => {
       if (!isConnected) {
-        const message = "Connect wallet to save this chat session.";
+        openWalletModal();
+        const message = "Choose a wallet to save this chat.";
         setSaveError(message);
         toast.error(message);
         return;
@@ -176,7 +179,7 @@ const Chat = ({ sessionId }: ChatProps) => {
       dispatchChatSessionsUpdated();
       setSaveError("");
     },
-    [getWalletAuth, isConnected],
+    [getWalletAuth, isConnected, openWalletModal],
   );
 
   const {
@@ -252,9 +255,10 @@ const Chat = ({ sessionId }: ChatProps) => {
       }
 
       if (!isConnected) {
+        openWalletModal();
         showError(
           setError,
-          "Connect wallet first so Langclaw can save the chat session.",
+          "Choose a wallet to send your message.",
         );
         return;
       }
@@ -287,13 +291,14 @@ const Chat = ({ sessionId }: ChatProps) => {
       } catch (err) {
         showError(
           setError,
-          err instanceof Error ? err.message : "Unable to start the chat.",
+          readFriendlyError(err, "Unable to start the chat."),
         );
       }
     },
     [
       getWalletAuth,
       isConnected,
+      openWalletModal,
       researchTrend,
       selectedModel,
       sendMessage,
@@ -311,7 +316,8 @@ const Chat = ({ sessionId }: ChatProps) => {
 
     const loadSession = async () => {
       if (!isConnected) {
-        showError(setError, "Connect wallet to load saved chat sessions.");
+        openWalletModal();
+        showError(setError, "Choose a wallet to load saved chats.");
         setLoading(false);
         return;
       }
@@ -339,7 +345,7 @@ const Chat = ({ sessionId }: ChatProps) => {
 
         showError(
           setError,
-          err instanceof Error ? err.message : "Unable to load chat session.",
+          readFriendlyError(err, "Unable to load chat session."),
         );
       } finally {
         if (active) {
@@ -353,7 +359,7 @@ const Chat = ({ sessionId }: ChatProps) => {
     return () => {
       active = false;
     };
-  }, [getWalletAuth, isConnected, sessionId, setMessages]);
+  }, [getWalletAuth, isConnected, openWalletModal, sessionId, setMessages]);
 
   useEffect(() => {
     if (!sessionId || loading || pendingStartedRef.current) {
@@ -393,11 +399,17 @@ const Chat = ({ sessionId }: ChatProps) => {
         return;
       }
 
+      if (!isConnected) {
+        openWalletModal();
+        showError(setError, "Choose a wallet to send your message.");
+        return;
+      }
+
       setInput("");
       setSpeechSegments([]);
       await submitMessage(text);
     },
-    [submitMessage],
+    [isConnected, openWalletModal, submitMessage],
   );
 
   const handleSuggestion = useCallback((suggestion: string) => {
@@ -420,9 +432,10 @@ const Chat = ({ sessionId }: ChatProps) => {
   const handleRetry = useCallback(
     async (messageId: string) => {
       if (!isConnected) {
+        openWalletModal();
         showError(
           setError,
-          "Connect wallet first so Langclaw can save the chat session.",
+          "Choose a wallet to retry this response.",
         );
         return;
       }
@@ -447,11 +460,19 @@ const Chat = ({ sessionId }: ChatProps) => {
       } catch (err) {
         showError(
           setError,
-          err instanceof Error ? err.message : "Unable to retry chat.",
+          readFriendlyError(err, "Unable to retry chat."),
         );
       }
     },
-    [getWalletAuth, isConnected, regenerate, researchTrend, selectedModel, sessionId],
+    [
+      getWalletAuth,
+      isConnected,
+      openWalletModal,
+      regenerate,
+      researchTrend,
+      selectedModel,
+      sessionId,
+    ],
   );
 
   return (
@@ -469,7 +490,7 @@ const Chat = ({ sessionId }: ChatProps) => {
                   <p className="text-muted-foreground text-sm">
                     {isConnected
                       ? "Ask directly or run SignalGraph research."
-                      : "Connect wallet from the sidebar to load and save chats."}
+                      : "Choose a wallet to load your chats and start writing."}
                   </p>
                 </div>
                 <Suggestions className="max-w-full justify-center">
@@ -618,8 +639,8 @@ const Chat = ({ sessionId }: ChatProps) => {
                 <ContextContent>
                   <ContextContentHeader />
                   <ContextContentBody className="space-y-1 text-xs text-muted-foreground">
-                    <p>Estimated from the current browser-side conversation.</p>
-                    <p>Actual usage is shown when backend returns receipts.</p>
+                    <p>Estimated from this conversation.</p>
+                    <p>Final usage appears after the answer finishes.</p>
                   </ContextContentBody>
                 </ContextContent>
               </Context>

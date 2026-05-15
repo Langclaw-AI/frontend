@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useConnection, useSignMessage } from "wagmi";
 
 import type { WalletAuth } from "@/lib/signalgraph-api";
@@ -17,7 +18,12 @@ type WalletAuthOptions = {
 
 export function useWalletSession() {
   const { address, isConnected } = useConnection();
+  const { openConnectModal } = useConnectModal();
   const { isPending, signMessageAsync } = useSignMessage();
+
+  const openWalletModal = useCallback(() => {
+    openConnectModal?.();
+  }, [openConnectModal]);
 
   const getWalletAuth = useCallback(
     async (options: WalletAuthOptions = {}) => {
@@ -60,6 +66,7 @@ export function useWalletSession() {
     hasCachedWalletAuth: Boolean(address && readCachedWalletAuth(address)),
     isConnected,
     isSigning: isPending,
+    openWalletModal,
   };
 }
 

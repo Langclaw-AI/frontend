@@ -6,6 +6,8 @@ import {
 } from "@/lib/chat-utils";
 import {
   getSignalGraphApiUrl,
+  readFriendlyError,
+  SignalGraphApiError,
   type ChatStreamChunk,
   type DirectChatPayload,
   type DiscoverPayload,
@@ -347,8 +349,12 @@ async function readErrorResponse(response: Response) {
   const payload = (await response.json().catch(() => null)) as
     | { error?: string }
     | null;
+  const message = payload?.error || `Request failed with status ${response.status}.`;
 
-  return payload?.error || `Request failed with status ${response.status}.`;
+  return readFriendlyError(
+    new SignalGraphApiError(message, response.status),
+    message,
+  );
 }
 
 function readErrorMessage(value: unknown) {

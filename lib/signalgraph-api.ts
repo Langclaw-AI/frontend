@@ -303,6 +303,175 @@ export type WalletAuth = {
   signature: string;
 };
 
+export type ApiKeyRecord = {
+  id: string;
+  name: string;
+  prefix?: string;
+  suffix?: string;
+  maskedKey: string;
+  status: "active" | "revoked" | (string & {});
+  createdAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+};
+
+export type ApiKeyCreatePayload = {
+  configured: true;
+  key: ApiKeyRecord;
+  secret: string;
+};
+
+export type AutomationTriggerType = "schedule" | "event" | "webhook";
+export type AutomationFrequency = "daily" | "weekly" | "monthly";
+export type AutomationTaskStatus = "draft" | "active" | "paused" | "archived";
+export type AutomationRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "canceled";
+export type AutomationTriggeredBy =
+  | "schedule"
+  | "event"
+  | "webhook"
+  | "manual"
+  | "system";
+export type AutomationNotificationChannel = "email" | "telegram" | "in-app";
+export type AutomationInAppNotificationStatus = "unread" | "read";
+
+export type AutomationSettings = {
+  retryPolicy: "none" | "3-attempts" | "5-attempts";
+  failureNotification: "email" | "in-app" | "none";
+  notificationChannels: AutomationNotificationChannel[];
+  notificationEmail?: string;
+  notificationEmailLinkedAt?: string;
+  notificationEmailPending?: string;
+  notificationEmailVerified: boolean;
+  telegramChatId?: string;
+  telegramLinkedAt?: string;
+  telegramUsername?: string;
+  telegramVerified: boolean;
+  autoPauseRepeatedFailures: boolean;
+  writeRunLogsToMemory: boolean;
+  dailyLimit0G: string;
+  monthlyCap0G: string;
+  limitBehavior: "pause" | "alert" | "allow";
+  lowBalanceThreshold0G: string;
+  thresholdAction: "notify" | "pause" | "continue";
+};
+
+export type AutomationTask = {
+  id: string;
+  name: string;
+  project: string;
+  prompt?: string;
+  model?: string;
+  triggerType: AutomationTriggerType;
+  scheduleFrequency?: AutomationFrequency;
+  scheduleTime: string;
+  scheduleWeekday?: number;
+  scheduleMonthDay?: number;
+  timezone: string;
+  eventName?: string;
+  webhookSlug?: string;
+  status: AutomationTaskStatus;
+  displayStatus: "Draft" | "Active" | "Paused" | "Running";
+  triggerLabel: string;
+  lastRunAt?: string;
+  lastRunStatus?: AutomationRunStatus;
+  nextRunAt?: string;
+  consecutiveFailures: number;
+  maxRetries: number;
+  failureThreshold: number;
+  metadata: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationRun = {
+  id: string;
+  taskId: string;
+  taskName?: string;
+  status: AutomationRunStatus;
+  triggeredBy: AutomationTriggeredBy;
+  attempt: number;
+  scheduledFor?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  error?: string;
+  result?: unknown;
+  usage?: unknown;
+  createdAt: string;
+};
+
+export type AutomationInAppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  status: AutomationInAppNotificationStatus;
+  taskId?: string;
+  runId?: string;
+  metadata: unknown;
+  readAt?: string;
+  createdAt: string;
+};
+
+export type AutomationStats = {
+  activeTasks: number;
+  scheduledTasks: number;
+  eventTasks: number;
+  runningNow: number;
+  successRate: number;
+  nextRunAt?: string;
+  nextRunTaskName?: string;
+  pendingRuns: number;
+  completedThisWeek: number;
+};
+
+export type AutomationDashboard = {
+  configured: true;
+  notifications: AutomationInAppNotification[];
+  tasks: AutomationTask[];
+  recentRuns: AutomationRun[];
+  settings: AutomationSettings;
+  stats: AutomationStats;
+};
+
+export type AutomationTaskInput = {
+  name?: string;
+  project?: string;
+  prompt?: string;
+  model?: string;
+  triggerType?: AutomationTriggerType;
+  scheduleFrequency?: AutomationFrequency;
+  scheduleTime?: string;
+  scheduleWeekday?: number;
+  scheduleMonthDay?: number;
+  timezone?: string;
+  eventName?: string;
+  status?: Extract<AutomationTaskStatus, "draft" | "active" | "paused">;
+};
+
+export type AutomationSettingsInput = Partial<
+  Pick<
+    AutomationSettings,
+    | "autoPauseRepeatedFailures"
+    | "dailyLimit0G"
+    | "failureNotification"
+    | "limitBehavior"
+    | "lowBalanceThreshold0G"
+    | "monthlyCap0G"
+    | "notificationChannels"
+    | "notificationEmail"
+    | "retryPolicy"
+    | "telegramChatId"
+    | "thresholdAction"
+    | "writeRunLogsToMemory"
+  >
+>;
+
 export type ChatStreamInput = {
   message: string;
   messages?: Array<Pick<StoredChatMessage, "role" | "content">>;
@@ -593,6 +762,24 @@ type ChatSessionsResponse =
       sessions?: ChatSession[];
     };
 
+type ApiKeysResponse =
+  | {
+      configured: false;
+      error?: string;
+    }
+  | {
+      configured: true;
+      error?: string;
+      key?: ApiKeyRecord;
+      keys?: ApiKeyRecord[];
+      secret?: string;
+    };
+
+type AutomationResponse<T> = T & {
+  configured?: boolean;
+  error?: string;
+};
+
 const DEFAULT_BACKEND_URL = "http://localhost:3001";
 
 export const CHAT_SESSIONS_UPDATED_EVENT = "langclaw-chat-sessions-updated";
@@ -757,6 +944,278 @@ export async function deleteChatSession(wallet: WalletAuth, sessionId: string) {
   });
 
   return Boolean(response.deleted);
+}
+
+export async function listApiKeys(wallet: WalletAuth) {
+  const response = await apiKeysRequest({ action: "list", wallet });
+
+  return response.keys ?? [];
+}
+
+export async function createApiKey(wallet: WalletAuth, name: string) {
+  const response = await apiKeysRequest({ action: "create", name, wallet });
+
+  if (!response.key || !response.secret) {
+    throw new SignalGraphApiError("API key was not returned.", 500);
+  }
+
+  return {
+    configured: true,
+    key: response.key,
+    secret: response.secret,
+  } satisfies ApiKeyCreatePayload;
+}
+
+export async function revokeApiKey(wallet: WalletAuth, keyId: string) {
+  const response = await apiKeysRequest({ action: "revoke", keyId, wallet });
+
+  if (!response.key) {
+    throw new SignalGraphApiError("API key was not returned.", 500);
+  }
+
+  return response.key;
+}
+
+export async function getAutomationDashboard(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/tasks", {
+    action: "list",
+    wallet,
+  });
+
+  return readAutomationResponse<AutomationDashboard>(response);
+}
+
+export async function createAutomationTask(
+  wallet: WalletAuth,
+  task: AutomationTaskInput,
+) {
+  const response = await postJson("/api/automation/tasks", {
+    action: "create",
+    task,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ task: AutomationTask }>(
+    response,
+  );
+
+  return payload.task;
+}
+
+export async function updateAutomationTask(
+  wallet: WalletAuth,
+  taskId: string,
+  task: AutomationTaskInput,
+) {
+  const response = await postJson("/api/automation/tasks", {
+    action: "update",
+    task,
+    taskId,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ task: AutomationTask }>(
+    response,
+  );
+
+  return payload.task;
+}
+
+export async function setAutomationTaskStatus(
+  wallet: WalletAuth,
+  taskId: string,
+  status: Extract<AutomationTaskStatus, "active" | "paused">,
+) {
+  const response = await postJson("/api/automation/tasks", {
+    action: status === "active" ? "resume" : "pause",
+    taskId,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ task: AutomationTask }>(
+    response,
+  );
+
+  return payload.task;
+}
+
+export async function deleteAutomationTask(
+  wallet: WalletAuth,
+  taskId: string,
+) {
+  const response = await postJson("/api/automation/tasks", {
+    action: "delete",
+    taskId,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ deleted?: boolean }>(response);
+
+  return Boolean(payload.deleted);
+}
+
+export async function setAllAutomationTasksStatus(
+  wallet: WalletAuth,
+  status: Extract<AutomationTaskStatus, "active" | "paused">,
+) {
+  const response = await postJson("/api/automation/tasks", {
+    action: status === "active" ? "resume-all" : "pause-all",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ tasks: AutomationTask[] }>(
+    response,
+  );
+
+  return payload.tasks ?? [];
+}
+
+export async function runAutomationTask(wallet: WalletAuth, taskId: string) {
+  const response = await postJson("/api/automation/runs", {
+    action: "run",
+    taskId,
+    triggeredBy: "manual",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ run: AutomationRun }>(
+    response,
+  );
+
+  return payload.run;
+}
+
+export async function listAutomationRuns(wallet: WalletAuth, taskId?: string) {
+  const response = await postJson("/api/automation/runs", {
+    action: "list",
+    taskId,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ runs: AutomationRun[] }>(
+    response,
+  );
+
+  return payload.runs ?? [];
+}
+
+export async function getAutomationSettings(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/settings", {
+    action: "get",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    settings: AutomationSettings;
+  }>(response);
+
+  return payload.settings;
+}
+
+export async function updateAutomationSettings(
+  wallet: WalletAuth,
+  settings: AutomationSettingsInput,
+) {
+  const response = await postJson("/api/automation/settings", {
+    action: "update",
+    settings,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    settings: AutomationSettings;
+  }>(response);
+
+  return payload.settings;
+}
+
+export async function listInAppAutomationNotifications(
+  wallet: WalletAuth,
+  limit = 20,
+) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "list-in-app",
+    limit,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    notifications: AutomationInAppNotification[];
+  }>(response);
+
+  return payload.notifications ?? [];
+}
+
+export async function markAutomationNotificationRead(
+  wallet: WalletAuth,
+  notificationId: string,
+) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "mark-in-app-read",
+    notificationId,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    notification: AutomationInAppNotification;
+  }>(response);
+
+  return payload.notification;
+}
+
+export async function markAllAutomationNotificationsRead(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "mark-all-in-app-read",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{ read?: boolean }>(response);
+
+  return Boolean(payload.read);
+}
+
+export async function requestAutomationEmailLink(
+  wallet: WalletAuth,
+  email: string,
+) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "request-email-link",
+    email,
+    wallet,
+  });
+
+  return readAutomationResponse<{
+    link: { email: string; expiresAt: string; sent: boolean };
+  }>(response);
+}
+
+export async function verifyAutomationEmailLink(
+  wallet: WalletAuth,
+  code: string,
+) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "verify-email-link",
+    code,
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    settings: AutomationSettings;
+  }>(response);
+
+  return payload.settings;
+}
+
+export async function createAutomationTelegramLink(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "create-telegram-link",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    link: { code: string; command: string; expiresAt: string };
+  }>(response);
+
+  return payload.link;
+}
+
+export async function pollAutomationTelegramLink(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "poll-telegram-link",
+    wallet,
+  });
+
+  return readAutomationResponse<{
+    linked: boolean;
+    settings?: AutomationSettings;
+    status: string;
+  }>(response);
 }
 
 export async function getUsageBalance(wallet: WalletAuth) {
@@ -1018,6 +1477,62 @@ async function chatSessionsRequest(body: {
   }
 
   return payload;
+}
+
+async function apiKeysRequest(body: {
+  action: "create" | "list" | "revoke";
+  keyId?: string;
+  name?: string;
+  wallet: WalletAuth;
+}) {
+  const response = await postJson("/api/api-keys", body);
+  const payload = await readJsonResponse<ApiKeysResponse>(response);
+
+  if (!payload.configured) {
+    throw new SignalGraphApiError(
+      payload.error || "API keys are not configured.",
+      503,
+    );
+  }
+
+  if (payload.error) {
+    throw new SignalGraphApiError(payload.error, response.status);
+  }
+
+  return payload;
+}
+
+async function readAutomationResponse<T>(response: Response) {
+  const payload = await readJsonResponse<AutomationResponse<T>>(response);
+
+  if (payload.error) {
+    throw new SignalGraphApiError(payload.error, response.status);
+  }
+
+  return payload as T;
+}
+
+export function readFriendlyError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+  const status = error instanceof SignalGraphApiError ? error.status : 0;
+
+  if (status === 402 || /insufficient\s+0g\s+balance/i.test(message)) {
+    return "Insufficient 0G balance. Add 0G credits before running this request.";
+  }
+
+  if (/wallet signature or api key is required/i.test(message)) {
+    return "Connect and approve your wallet to continue.";
+  }
+
+  if (/wallet signature is required/i.test(message)) {
+    return "Approve the wallet prompt to continue.";
+  }
+
+  if (/supabase/i.test(message)) {
+    return "Account storage is not ready yet. Check backend configuration.";
+  }
+
+  return message || fallback;
 }
 
 async function getRequest(

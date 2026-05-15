@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
   CopyIcon,
+  InfoIcon,
   Loader2Icon,
   RefreshCcwIcon,
   SendIcon,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { formatEther, parseEther, type Hash } from "viem";
 import {
+  useBalance,
   useReadContract,
   useWaitForTransactionReceipt,
   useWriteContract,
@@ -42,6 +44,7 @@ import { useWalletSession } from "@/hooks/use-wallet-session";
 import {
   getUsageBalance,
   getUsageQuote,
+  readFriendlyError,
   requestUsageWithdraw,
   verifyUsageDeposit,
   type UsageBalancePayload,
@@ -116,6 +119,7 @@ export default function UsagePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState("");
   const [copied, setCopied] = useState("");
+  const autoCreditHashRef = useRef("");
   const {
     data: depositReceipt,
     isLoading: isConfirmingDeposit,
@@ -134,6 +138,14 @@ export default function UsagePage() {
     | `0x${string}`
     | undefined;
   const connectedWalletAddress = address as `0x${string}` | undefined;
+  const { data: walletBalance, isLoading: isLoadingWalletBalance } = useBalance(
+    {
+      address: connectedWalletAddress,
+      query: {
+        enabled: Boolean(connectedWalletAddress),
+      },
+    },
+  );
   const {
     data: authorizedWithdrawalData,
     isLoading: isLoadingAuthorizedWithdrawal,
@@ -178,6 +190,21 @@ export default function UsagePage() {
     () => parsePositive0GAmount(withdrawAmount),
     [withdrawAmount],
   );
+  const parsedDepositAmount = useMemo(
+    () => parsePositive0GAmount(depositAmount),
+    [depositAmount],
+  );
+  const wallet0GBalance = walletBalance
+    ? `${trimDecimal(formatEther(walletBalance.value))} ${walletBalance.symbol}`
+    : "";
+  const hasNoNative0G =
+    isConnected &&
+    walletBalance !== undefined &&
+    walletBalance.value === BigInt(0);
+  const depositExceedsNativeBalance =
+    parsedDepositAmount !== null &&
+    walletBalance !== undefined &&
+    parsedDepositAmount > walletBalance.value;
   const isVaultPaused = vaultPausedData === true;
   const withdrawalAmountIsCovered =
     parsedWithdrawAmount !== null &&
@@ -205,7 +232,7 @@ export default function UsagePage() {
       const payload = await getUsageQuote();
       setQuote(payload);
     } catch (err) {
-      const message = readError(err, "Unable to load quote.");
+      const message = readFriendlyError(err, "Unable to load quote.");
       setError(message);
       toast.error(message);
     }
@@ -229,7 +256,7 @@ export default function UsagePage() {
       setBalance(payload);
       setVaultInfo(vault);
     } catch (err) {
-      const message = readError(err, "Unable to load balance.");
+      const message = readFriendlyError(err, "Unable to load balance.");
       setError(message);
       toast.error(message);
     } finally {
@@ -299,7 +326,7 @@ export default function UsagePage() {
       ]);
       toast.success("Vault state refreshed");
     } catch (err) {
-      const message = readError(err, "Unable to refresh vault state.");
+      const message = readFriendlyError(err, "Unable to refresh vault state.");
       setError(message);
       toast.error(message);
     } finally {
@@ -307,42 +334,82 @@ export default function UsagePage() {
     }
   };
 
-  const handleVerifyDeposit = async () => {
-    const hash = txHash.trim() || depositHash;
+  const handleVerifyDeposit = useCallback(
+    async (options: { hash?: string; reference?: string; silent?: boolean } = {}) => {
+      const hash = options.hash ?? (txHash.trim() || depositHash);
 
-    if (!hash) {
-      showError(setError, "Transaction hash is required.");
+      if (!hash) {
+        showError(setError, "Transaction hash is required.");
+        return;
+      }
+
+      setLoading("deposit");
+      setError("");
+      setDeposit(null);
+
+      try {
+        const wallet = await getWalletAuth();
+        const payload = await verifyUsageDeposit({
+          reference: options.reference ?? (reference.trim() || undefined),
+          txHash: hash,
+          wallet,
+        });
+        setDeposit(payload);
+        toast.success(
+          options.silent ? "Deposit credited automatically" : "Deposit credited",
+          {
+            description: `${payload.amount0G} 0G is ready to use.`,
+          },
+        );
+        await refreshBalance();
+      } catch (err) {
+        const message = readFriendlyError(err, "Unable to verify deposit.");
+        setError(message);
+        toast.error(message);
+      } finally {
+        setLoading("");
+      }
+    },
+    [depositHash, getWalletAuth, reference, refreshBalance, txHash],
+  );
+
+  useEffect(() => {
+    if (
+      !depositHash ||
+      !isDepositConfirmed ||
+      autoCreditHashRef.current === depositHash
+    ) {
       return;
     }
 
-    setLoading("deposit");
-    setError("");
-    setDeposit(null);
+    autoCreditHashRef.current = depositHash;
+    const timeoutId = window.setTimeout(() => {
+      void handleVerifyDeposit({
+        hash: depositHash,
+        reference,
+        silent: true,
+      });
+    }, 0);
 
-    try {
-      const wallet = await getWalletAuth();
-      const payload = await verifyUsageDeposit({
-        reference: reference.trim() || undefined,
-        txHash: hash,
-        wallet,
-      });
-      setDeposit(payload);
-      toast.success("Deposit credited", {
-        description: `${payload.amount0G} 0G is now reflected in your usage balance.`,
-      });
-      await refreshBalance();
-    } catch (err) {
-      const message = readError(err, "Unable to verify deposit.");
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading("");
-    }
-  };
+    return () => window.clearTimeout(timeoutId);
+  }, [depositHash, handleVerifyDeposit, isDepositConfirmed, reference]);
 
   const handleSendDeposit = async () => {
     if (!vaultInfo?.vaultAddress) {
       showError(setError, "Load vault address first.");
+      return;
+    }
+
+    if (!parsedDepositAmount) {
+      showError(setError, "Enter a valid 0G amount greater than zero.");
+      return;
+    }
+
+    if (depositExceedsNativeBalance || hasNoNative0G) {
+      showError(
+        setError,
+        "Insufficient 0G balance in your wallet for this deposit.",
+      );
       return;
     }
 
@@ -366,7 +433,7 @@ export default function UsagePage() {
         address: vaultInfo.vaultAddress as `0x${string}`,
         args: [depositReference as `0x${string}`],
         functionName: "deposit",
-        value: parseEther(depositAmount),
+        value: parsedDepositAmount,
       });
       setDepositHash(hash);
       setTxHash(hash);
@@ -375,7 +442,7 @@ export default function UsagePage() {
         description: `${shortHash(hash)} is waiting for confirmation.`,
       });
     } catch (err) {
-      const message = readError(err, "Unable to send deposit.");
+      const message = readFriendlyError(err, "Unable to send deposit.");
       setError(message);
       toast.error(message);
     } finally {
@@ -395,7 +462,7 @@ export default function UsagePage() {
         description: shortHash(payload.vaultAddress),
       });
     } catch (err) {
-      const message = readError(err, "Unable to load vault.");
+      const message = readFriendlyError(err, "Unable to load vault.");
       setError(message);
       toast.error(message);
     } finally {
@@ -419,10 +486,10 @@ export default function UsagePage() {
       setWithdraw(payload);
       setVaultInfo(payload);
       toast.info("Withdraw request prepared", {
-        description: "Waiting for backend authorization on the vault contract.",
+        description: "You can withdraw after Langclaw approves the amount.",
       });
     } catch (err) {
-      const message = readError(err, "Unable to request withdraw.");
+      const message = readFriendlyError(err, "Unable to request withdraw.");
       setError(message);
       toast.error(message);
     } finally {
@@ -470,7 +537,7 @@ export default function UsagePage() {
         description: `${shortHash(hash)} is waiting for confirmation.`,
       });
     } catch (err) {
-      const message = readError(err, "Unable to withdraw from vault.");
+      const message = readFriendlyError(err, "Unable to withdraw from vault.");
       setError(message);
       toast.error(message);
     } finally {
@@ -482,9 +549,9 @@ export default function UsagePage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="font-semibold text-2xl">Usage</h1>
+          <h1 className="font-semibold text-2xl">Credits & Balance</h1>
           <p className="text-muted-foreground text-sm">
-            Wallet balance, quote, deposits, and withdraw requests.
+            Add 0G credits, track spend, and withdraw unused balance.
           </p>
         </div>
         <Button
@@ -505,8 +572,19 @@ export default function UsagePage() {
       {error && (
         <Alert variant="destructive">
           <AlertCircleIcon className="size-4" />
-          <AlertTitle>Endpoint error</AlertTitle>
+          <AlertTitle>Something needs attention</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {(hasNoNative0G || depositExceedsNativeBalance) && (
+        <Alert>
+          <InfoIcon className="size-4" />
+          <AlertTitle>Insufficient wallet balance</AlertTitle>
+          <AlertDescription>
+            Your wallet has {wallet0GBalance || "0 0G"}. Lower the deposit
+            amount or add 0G to this wallet first.
+          </AlertDescription>
         </Alert>
       )}
 
@@ -531,37 +609,34 @@ export default function UsagePage() {
       <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <Card className="rounded-lg" size="sm">
           <CardHeader>
-            <CardTitle>Balance ledger</CardTitle>
-            <CardDescription>POST /api/usage/balance</CardDescription>
+            <CardTitle>Balance overview</CardTitle>
+            <CardDescription>
+              Credits available for chat, research, and API requests.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Metric</TableHead>
-                  <TableHead className="text-right">Neuron</TableHead>
                   <TableHead className="text-right">0G</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <UsageRow
                   label="Available"
-                  neuron={balance?.balance.availableNeuron}
                   token={balance?.balance.available0G}
                 />
                 <UsageRow
                   label="Reserved"
-                  neuron={balance?.balance.reservedNeuron}
                   token={balance?.balance.reserved0G}
                 />
                 <UsageRow
                   label="Lifetime deposited"
-                  neuron={balance?.balance.lifetimeDepositedNeuron}
                   token={balance?.balance.lifetimeDeposited0G}
                 />
                 <UsageRow
                   label="Lifetime charged"
-                  neuron={balance?.balance.lifetimeChargedNeuron}
                   token={balance?.balance.lifetimeCharged0G}
                 />
               </TableBody>
@@ -571,19 +646,36 @@ export default function UsagePage() {
 
         <Card className="rounded-lg" size="sm">
           <CardHeader>
-            <CardTitle>Quote</CardTitle>
-            <CardDescription>POST /api/usage/quote</CardDescription>
+            <CardTitle>Typical request</CardTitle>
+            <CardDescription>
+              Current estimate before a paid research run starts.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <Detail label="Model" value={quote?.quote.model} />
-            <Detail label="Endpoint" value={quote?.quote.endpoint} />
             <Detail
-              label="Prompt price"
-              value={quote?.quote.promptPriceNeuron}
+              label="Estimated cost"
+              value={
+                quote?.quote.estimatedCost0G
+                  ? `${quote.quote.estimatedCost0G} 0G`
+                  : undefined
+              }
             />
             <Detail
-              label="Completion price"
-              value={quote?.quote.completionPriceNeuron}
+              label="Prompt size"
+              value={
+                quote?.quote.estimatedPromptTokens
+                  ? `${quote.quote.estimatedPromptTokens.toLocaleString()} tokens`
+                  : undefined
+              }
+            />
+            <Detail
+              label="Answer size"
+              value={
+                quote?.quote.estimatedCompletionTokens
+                  ? `${quote.quote.estimatedCompletionTokens.toLocaleString()} tokens`
+                  : undefined
+              }
             />
             <Detail
               label="Fetched"
@@ -600,10 +692,10 @@ export default function UsagePage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card className="rounded-lg lg:col-span-2" size="sm">
           <CardHeader>
-            <CardTitle>Deposit 0G</CardTitle>
+            <CardTitle>Add 0G credits</CardTitle>
             <CardDescription>
-              Send native 0G to the usage vault, then credit it through backend
-              verification.
+              Confirm the wallet transaction. Langclaw credits your account
+              automatically after it lands on-chain.
             </CardDescription>
             <CardAction>
               <Button
@@ -617,7 +709,7 @@ export default function UsagePage() {
                 ) : (
                   <RefreshCcwIcon className="size-4" />
                 )}
-                Vault
+                Refresh vault
               </Button>
             </CardAction>
           </CardHeader>
@@ -643,7 +735,10 @@ export default function UsagePage() {
                       !vaultInfo?.vaultAddress ||
                       !isConnected ||
                       isDepositPending ||
-                      loading === "send-deposit"
+                      loading === "send-deposit" ||
+                      !parsedDepositAmount ||
+                      depositExceedsNativeBalance ||
+                      hasNoNative0G
                     }
                     onClick={() => void handleSendDeposit()}
                     size="sm"
@@ -655,26 +750,13 @@ export default function UsagePage() {
                     )}
                     Send deposit
                   </Button>
-                  {depositHash && (
-                    <Button
-                      disabled={
-                        loading === "deposit" ||
-                        isConfirmingDeposit ||
-                        !isDepositConfirmed
-                      }
-                      onClick={() => void handleVerifyDeposit()}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {loading === "deposit" || isConfirmingDeposit ? (
-                        <Loader2Icon className="size-4 animate-spin" />
-                      ) : (
-                        <ShieldCheckIcon className="size-4" />
-                      )}
-                      Credit
-                    </Button>
-                  )}
                 </div>
+                <p className="text-muted-foreground text-xs">
+                  Wallet balance:{" "}
+                  {isLoadingWalletBalance
+                    ? "Loading"
+                    : wallet0GBalance || "Connect wallet"}
+                </p>
               </div>
               <div className="space-y-2">
                 <CopyField
@@ -711,8 +793,10 @@ export default function UsagePage() {
 
         <Card className="rounded-lg" size="sm">
           <CardHeader>
-            <CardTitle>Manual deposit verification</CardTitle>
-            <CardDescription>POST /api/usage/deposit/verify</CardDescription>
+            <CardTitle>Already sent a deposit?</CardTitle>
+            <CardDescription>
+              Paste a transaction hash to reconcile an older deposit.
+            </CardDescription>
             <CardAction>
               <Button
                 disabled={loading === "deposit" || isSigning}
@@ -761,9 +845,9 @@ export default function UsagePage() {
 
         <Card className="rounded-lg" size="sm">
           <CardHeader>
-            <CardTitle>Withdraw request</CardTitle>
+            <CardTitle>Withdraw 0G</CardTitle>
             <CardDescription>
-              POST /api/usage/withdraw/request + vault withdraw(uint256)
+              Prepare a withdrawal, then confirm it from your wallet.
             </CardDescription>
             <CardAction>
               <Button
@@ -777,7 +861,7 @@ export default function UsagePage() {
                 ) : (
                   <RefreshCcwIcon className="size-4" />
                 )}
-                State
+                Refresh
               </Button>
             </CardAction>
           </CardHeader>
@@ -805,7 +889,7 @@ export default function UsagePage() {
                 {loading === "withdraw" && (
                   <Loader2Icon className="size-4 animate-spin" />
                 )}
-                Request authorization
+                Prepare
               </Button>
               <Button
                 disabled={!canWithdrawOnchain}
@@ -882,10 +966,10 @@ export default function UsagePage() {
             </div>
             <Alert>
               <ShieldCheckIcon className="size-4" />
-              <AlertTitle>Withdrawal is backend-authorized</AlertTitle>
+              <AlertTitle>Withdrawal approval</AlertTitle>
               <AlertDescription>
-                The button becomes available only after the backend/operator
-                calls authorizeWithdrawal for this wallet and amount.
+                The withdraw button unlocks once Langclaw approves this wallet
+                and amount.
               </AlertDescription>
             </Alert>
           </CardContent>
@@ -919,19 +1003,14 @@ function MetricCard({
 
 function UsageRow({
   label,
-  neuron,
   token,
 }: {
   label: string;
-  neuron?: string;
   token?: string;
 }) {
   return (
     <TableRow>
       <TableCell>{label}</TableCell>
-      <TableCell className="max-w-48 truncate text-right">
-        {neuron ?? "Not available"}
-      </TableCell>
       <TableCell className="text-right">{token ?? "Not available"}</TableCell>
     </TableRow>
   );
@@ -1019,8 +1098,8 @@ function DepositStatus({
     return (
       <div className="grid gap-2 text-sm md:grid-cols-3">
         <Step label="1" text="Load vault" />
-        <Step label="2" text="Send native 0G" />
-        <Step label="3" text="Verify credit" />
+        <Step label="2" text="Confirm deposit" />
+        <Step label="3" text="Credit updates automatically" />
       </div>
     );
   }
@@ -1044,7 +1123,9 @@ function DepositStatus({
           value={
             credited
               ? `${credited.credited ? "credited" : "already credited"} ${credited.amount0G} 0G`
-              : "not verified"
+              : isConfirmed
+                ? "crediting"
+                : "waiting for confirmation"
           }
         />
       </div>
@@ -1105,10 +1186,6 @@ function parsePositive0GAmount(value: string) {
 
 function format0G(value: bigint) {
   return trimDecimal(formatEther(value));
-}
-
-function readError(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
 }
 
 function showError(setError: (message: string) => void, message: string) {
