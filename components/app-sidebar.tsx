@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   Sidebar,
@@ -10,8 +11,10 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
 import {
   Cable,
@@ -24,6 +27,7 @@ import {
   LogOut,
   MessagesSquare,
   Settings,
+  Trash2,
   User2,
 } from "lucide-react";
 import {
@@ -48,33 +52,104 @@ import {
   CardHeader,
   CardTitle,
 } from "./ui/card";
-
-const projects = [
-  {
-    name: "Langclaw Website",
-    url: "/chat?project=langclaw-website",
-  },
-  {
-    name: "RAG Knowledge Base",
-    url: "/chat?project=rag-knowledge-base",
-  },
-  {
-    name: "API Playground",
-    url: "/chat?project=api-playground",
-  },
-  {
-    name: "Model Benchmark",
-    url: "/chat?project=model-benchmark",
-  },
-];
+import {
+  CHAT_SESSIONS_UPDATED_EVENT,
+  checkBackendHealth,
+  deleteChatSession,
+  dispatchChatSessionsUpdated,
+  listChatSessions,
+  type ChatSession,
+} from "@/lib/signalgraph-api";
+import {
+  useWalletSession,
+  WALLET_AUTH_UPDATED_EVENT,
+} from "@/hooks/use-wallet-session";
 
 export function AppSidebar() {
   const { isConnected, address } = useConnection();
+  const { getWalletAuth } = useWalletSession();
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
   const { data: balanceUser } = useBalance({
     address: address,
   });
   const chains = useChains();
   const disconnect = useDisconnect();
+  const pinnedSessions = useMemo(
+    () => sessions.filter((session) => session.pinned),
+    [sessions]
+  );
+  const recentSessions = useMemo(
+    () => sessions.filter((session) => !session.pinned),
+    [sessions]
+  );
+
+  const refreshSessions = useCallback(async () => {
+    if (!isConnected || !address) {
+      setSessions([]);
+      setSessionsError("");
+      setIsLoadingSessions(false);
+      return;
+    }
+
+    setIsLoadingSessions(true);
+
+    try {
+      const wallet = await getWalletAuth();
+      const nextSessions = await listChatSessions(wallet);
+      setSessions(nextSessions);
+      setSessionsError("");
+    } catch (error) {
+      setSessions([]);
+      setSessionsError(
+        error instanceof Error ? error.message : "Unable to load chats."
+      );
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, [address, getWalletAuth, isConnected]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void refreshSessions();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [refreshSessions]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void checkBackendHealth()
+        .then(() => setBackendOnline(true))
+        .catch(() => setBackendOnline(false));
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(CHAT_SESSIONS_UPDATED_EVENT, refreshSessions);
+    window.addEventListener(WALLET_AUTH_UPDATED_EVENT, refreshSessions);
+
+    return () => {
+      window.removeEventListener(CHAT_SESSIONS_UPDATED_EVENT, refreshSessions);
+      window.removeEventListener(WALLET_AUTH_UPDATED_EVENT, refreshSessions);
+    };
+  }, [refreshSessions]);
+
+  const handleDeleteSession = useCallback(
+    async (sessionId: string) => {
+      const wallet = await getWalletAuth();
+      await deleteChatSession(wallet, sessionId);
+      setSessions((current) =>
+        current.filter((session) => session.id !== sessionId)
+      );
+      dispatchChatSessionsUpdated();
+    },
+    [getWalletAuth]
+  );
 
   // if (isReconnecting) {
   //   <p>hai</p>;
@@ -86,6 +161,18 @@ export function AppSidebar() {
         <Link href={"/"}>
           <span className="text-lg font-bold mb-5">Langclaw</span>
         </Link>
+        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          <span
+            className={`size-2 rounded-full ${
+              backendOnline === null
+                ? "bg-muted-foreground/40"
+                : backendOnline
+                  ? "bg-emerald-500"
+                  : "bg-destructive"
+            }`}
+          />
+          <span>{backendOnline === false ? "Backend offline" : "Backend online"}</span>
+        </div>
         {isConnected && (
           <Card>
             <CardHeader>
@@ -170,16 +257,14 @@ export function AppSidebar() {
             <CollapsibleContent>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {projects.map((project) => (
-                    <SidebarMenuItem key={project.name}>
-                      <SidebarMenuButton asChild>
-                        <Link href={project.url}>
-                          <MessagesSquare />
-                          <span>{project.name}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  <SessionMenuItems
+                    emptyLabel={
+                      isConnected ? "No pinned chats" : "Connect wallet first"
+                    }
+                    isLoading={isLoadingSessions}
+                    onDelete={handleDeleteSession}
+                    sessions={pinnedSessions}
+                  />
                 </SidebarMenu>
               </SidebarGroupContent>
             </CollapsibleContent>
@@ -198,17 +283,20 @@ export function AppSidebar() {
             <CollapsibleContent>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {projects.map((project) => (
-                    <SidebarMenuItem key={project.name}>
-                      <SidebarMenuButton asChild>
-                        <Link href={project.url}>
-                          <MessagesSquare />
-                          <span>{project.name}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  <SessionMenuItems
+                    emptyLabel={
+                      isConnected ? "No recent chats" : "Connect wallet first"
+                    }
+                    isLoading={isLoadingSessions}
+                    onDelete={handleDeleteSession}
+                    sessions={recentSessions}
+                  />
                 </SidebarMenu>
+                {sessionsError && (
+                  <p className="px-2 pt-2 text-xs text-destructive">
+                    {sessionsError}
+                  </p>
+                )}
               </SidebarGroupContent>
             </CollapsibleContent>
           </SidebarGroup>
@@ -256,4 +344,56 @@ export function AppSidebar() {
       </SidebarFooter>
     </Sidebar>
   );
+}
+
+function SessionMenuItems({
+  emptyLabel,
+  isLoading,
+  onDelete,
+  sessions,
+}: {
+  emptyLabel: string;
+  isLoading: boolean;
+  onDelete: (sessionId: string) => Promise<void>;
+  sessions: ChatSession[];
+}) {
+  if (isLoading) {
+    return (
+      <>
+        <SidebarMenuSkeleton showIcon />
+        <SidebarMenuSkeleton showIcon />
+        <SidebarMenuSkeleton showIcon />
+      </>
+    );
+  }
+
+  if (!sessions.length) {
+    return (
+      <SidebarMenuItem>
+        <p className="px-2 py-1 text-xs text-muted-foreground">{emptyLabel}</p>
+      </SidebarMenuItem>
+    );
+  }
+
+  return sessions.map((session) => (
+    <SidebarMenuItem key={session.id}>
+      <SidebarMenuButton asChild tooltip={session.title}>
+        <Link href={`/chat/${session.id}`}>
+          <MessagesSquare />
+          <span>{session.title}</span>
+        </Link>
+      </SidebarMenuButton>
+      <SidebarMenuAction
+        aria-label={`Delete ${session.title}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void onDelete(session.id);
+        }}
+        showOnHover
+      >
+        <Trash2 />
+      </SidebarMenuAction>
+    </SidebarMenuItem>
+  ));
 }

@@ -1,6 +1,5 @@
 import React from "react";
 import { DiaTextReveal } from "./ui/dia-text-reveal";
-import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { SendHorizontal } from "lucide-react";
 import { Textarea } from "./ui/textarea";

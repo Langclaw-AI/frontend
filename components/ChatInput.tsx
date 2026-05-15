@@ -40,44 +40,18 @@ import { CheckIcon, GlobeIcon } from "lucide-react";
 import type { FileUIPart } from "ai";
 import { memo, useCallback, useState } from "react";
 import { SparklesText } from "./ui/sparkles-text";
+import { useRouter } from "next/navigation";
 
-const models = [
-  {
-    chef: "OpenAI",
-    chefSlug: "openai",
-    id: "gpt-4o",
-    name: "GPT-4o",
-    providers: ["openai", "azure"],
-  },
-  {
-    chef: "OpenAI",
-    chefSlug: "openai",
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    providers: ["openai", "azure"],
-  },
-  {
-    chef: "Anthropic",
-    chefSlug: "anthropic",
-    id: "claude-opus-4-20250514",
-    name: "Claude 4 Opus",
-    providers: ["anthropic", "azure", "google", "amazon-bedrock"],
-  },
-  {
-    chef: "Anthropic",
-    chefSlug: "anthropic",
-    id: "claude-sonnet-4-20250514",
-    name: "Claude 4 Sonnet",
-    providers: ["anthropic", "azure", "google", "amazon-bedrock"],
-  },
-  {
-    chef: "Google",
-    chefSlug: "google",
-    id: "gemini-2.0-flash-exp",
-    name: "Gemini 2.0 Flash",
-    providers: ["google"],
-  },
-];
+import {
+  CHAT_MODELS,
+  createChatSession,
+  savePendingPrompt,
+} from "@/lib/chat-utils";
+import {
+  dispatchChatSessionsUpdated,
+  upsertChatSession,
+} from "@/lib/signalgraph-api";
+import { useWalletSession } from "@/hooks/use-wallet-session";
 
 const SUBMITTING_TIMEOUT = 200;
 const STREAMING_TIMEOUT = 2000;
@@ -103,7 +77,7 @@ const AttachmentItem = memo(({ attachment, onRemove }: AttachmentItemProps) => {
 AttachmentItem.displayName = "AttachmentItem";
 
 interface ModelItemProps {
-  m: (typeof models)[0];
+  m: (typeof CHAT_MODELS)[number];
   selectedModel: string;
   onSelect: (id: string) => void;
 }
@@ -156,40 +130,71 @@ const PromptInputAttachmentsDisplay = () => {
 };
 
 const ChatInput = () => {
-  const [model, setModel] = useState<string>(models[0].id);
+  const router = useRouter();
+  const { getWalletAuth, isConnected, isSigning } = useWalletSession();
+  const [model, setModel] = useState<string>(CHAT_MODELS[0].id);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [researchTrend, setResearchTrend] = useState(false);
+  const [error, setError] = useState("");
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
   >("ready");
 
-  const selectedModelData = models.find((m) => m.id === model);
+  const selectedModelData = CHAT_MODELS.find((m) => m.id === model);
 
   const handleModelSelect = useCallback((id: string) => {
     setModel(id);
     setModelSelectorOpen(false);
   }, []);
 
-  const handleSubmit = useCallback((message: PromptInputMessage) => {
-    const hasText = Boolean(message.text);
+  const handleSubmit = useCallback(async (message: PromptInputMessage) => {
+    const text = message.text.trim();
+    const hasText = Boolean(text);
     const hasAttachments = Boolean(message.files?.length);
 
     if (!(hasText || hasAttachments)) {
       return;
     }
 
+    if (!isConnected) {
+      setError("Connect wallet first so Langclaw can create a saved chat session.");
+      setStatus("error");
+      return;
+    }
+
     setStatus("submitted");
+    setError("");
 
-    // eslint-disable-next-line no-console
-    console.log("Submitting message:", message);
+    try {
+      const wallet = await getWalletAuth();
+      const session = createChatSession(text);
 
-    setTimeout(() => {
+      savePendingPrompt(session.id, {
+        model,
+        researchTrend,
+        text,
+      });
+
+      await upsertChatSession(wallet, session);
+      dispatchChatSessionsUpdated();
       setStatus("streaming");
-    }, SUBMITTING_TIMEOUT);
 
-    setTimeout(() => {
-      setStatus("ready");
-    }, STREAMING_TIMEOUT);
-  }, []);
+      setTimeout(() => {
+        router.push(`/chat/${session.id}`);
+      }, SUBMITTING_TIMEOUT);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to start the chat session."
+      );
+      setStatus("error");
+
+      setTimeout(() => {
+        setStatus("ready");
+      }, STREAMING_TIMEOUT);
+    }
+  }, [getWalletAuth, isConnected, model, researchTrend, router]);
 
   return (
     <div className="size-full mx-auto flex flex-col h-full justify-center items-center gap-10">
@@ -213,7 +218,10 @@ const ChatInput = () => {
                   <PromptInputActionAddScreenshot />
                 </PromptInputActionMenuContent>
               </PromptInputActionMenu>
-              <PromptInputButton>
+              <PromptInputButton
+                onClick={() => setResearchTrend((value) => !value)}
+                variant={researchTrend ? "default" : "ghost"}
+              >
                 <GlobeIcon size={16} />
                 <span>Search</span>
               </PromptInputButton>
@@ -239,9 +247,9 @@ const ChatInput = () => {
                   <ModelSelectorInput placeholder="Search models..." />
                   <ModelSelectorList>
                     <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                    {["OpenAI", "Anthropic", "Google"].map((chef) => (
+                    {["0G Compute", "OpenAI", "Anthropic", "Google"].map((chef) => (
                       <ModelSelectorGroup heading={chef} key={chef}>
-                        {models
+                        {CHAT_MODELS
                           .filter((m) => m.chef === chef)
                           .map((m) => (
                             <ModelItem
@@ -257,10 +265,15 @@ const ChatInput = () => {
                 </ModelSelectorContent>
               </ModelSelector>
             </PromptInputTools>
-            <PromptInputSubmit status={status} />
+            <PromptInputSubmit disabled={isSigning} status={status} />
           </PromptInputFooter>
         </PromptInput>
       </PromptInputProvider>
+      {error && (
+        <p className="max-w-2xl text-center text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   );
 };
