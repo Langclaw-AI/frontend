@@ -4,6 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import "@rainbow-me/rainbowkit/styles.css";
 import Web3Provider from "@/lib/Web3Provider";
 
@@ -100,7 +101,10 @@ export default function RootLayout({
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col">
         <Web3Provider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            {children}
+            <Toaster closeButton position="top-right" richColors />
+          </TooltipProvider>
         </Web3Provider>
         <Script
           id="extension-hydration-cleanup"

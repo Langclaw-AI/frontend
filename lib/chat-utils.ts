@@ -57,7 +57,7 @@ export const CHAT_MODELS = [
 
 export type PendingPrompt = {
   text: string;
-  model: string;
+  model?: string;
   researchTrend: boolean;
 };
 
@@ -262,13 +262,16 @@ export function consumePendingPrompt(sessionId: string) {
 
     if (
       typeof parsed.text !== "string" ||
-      typeof parsed.model !== "string" ||
       typeof parsed.researchTrend !== "boolean"
     ) {
       return null;
     }
 
-    return parsed as PendingPrompt;
+    return {
+      model: typeof parsed.model === "string" ? parsed.model : undefined,
+      researchTrend: parsed.researchTrend,
+      text: parsed.text,
+    };
   } catch {
     return null;
   }

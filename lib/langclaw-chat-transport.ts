@@ -6,43 +6,20 @@ import {
 } from "@/lib/chat-utils";
 import {
   getSignalGraphApiUrl,
+  type ChatStreamChunk,
   type DirectChatPayload,
   type DiscoverPayload,
   type StoredChatMessage,
+  type WalletAuth,
   type WorkflowProgressEvent,
 } from "@/lib/signalgraph-api";
 import type { ChatTransport, UIMessageChunk } from "ai";
-
-type BackendChunk =
-  | {
-      type: "direct_delta";
-      delta?: unknown;
-    }
-  | {
-      type: "direct";
-      payload?: unknown;
-    }
-  | {
-      type: "mode";
-      mode?: unknown;
-    }
-  | {
-      type: "progress";
-      event?: unknown;
-    }
-  | {
-      type: "result";
-      payload?: unknown;
-    }
-  | {
-      type: "error";
-      error?: unknown;
-    };
 
 type ChatRequestBody = {
   model?: string;
   researchTrend?: boolean;
   sessionId?: string;
+  wallet?: WalletAuth;
 };
 
 const answerPartId = "langclaw-answer";
@@ -185,7 +162,7 @@ async function pipeBackendStreamToUIMessageChunks({
     appendReasoning(
       body.researchTrend
         ? "Preparing SignalGraph research workflow.\n"
-        : "Preparing direct answer with the selected model.\n"
+        : `Preparing direct answer${body.model ? ` with ${body.model}` : ""}.\n`
     );
 
     const response = await fetch(getSignalGraphApiUrl("/api/chat/stream"), {
@@ -196,6 +173,7 @@ async function pipeBackendStreamToUIMessageChunks({
         researchTrend: Boolean(body.researchTrend),
         sessionId: body.sessionId ?? chatId,
         useAgent: Boolean(body.researchTrend),
+        wallet: body.wallet,
       }),
       headers: {
         "Content-Type": "application/json",
@@ -219,7 +197,7 @@ async function pipeBackendStreamToUIMessageChunks({
       }
 
       if (chunk.type === "direct") {
-        const payload = chunk.payload as DirectChatPayload;
+        const payload = readDirectPayload(chunk.payload);
 
         if (!text && payload.answer) {
           appendText(payload.answer);
@@ -236,7 +214,7 @@ async function pipeBackendStreamToUIMessageChunks({
       }
 
       if (chunk.type === "progress") {
-        const event = chunk.event as WorkflowProgressEvent;
+        const event = readProgressEvent(chunk.event);
         progressEvents = [
           ...progressEvents,
           event,
@@ -247,7 +225,7 @@ async function pipeBackendStreamToUIMessageChunks({
       }
 
       if (chunk.type === "result") {
-        const payload = chunk.payload as DiscoverPayload;
+        const payload = readDiscoverPayload(chunk.payload);
         appendReasoning("Research complete. Composing final answer.\n");
         closeReasoningPart();
         appendText(buildDiscoverAnswerContent(payload));
@@ -293,6 +271,7 @@ function readChatRequestBody(body: object | undefined): ChatRequestBody {
     researchTrend: payload.researchTrend === true,
     sessionId:
       typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+    wallet: readWalletAuth(payload.wallet),
   };
 }
 
@@ -324,7 +303,7 @@ function toBackendMessages(
 async function readNdjson(
   body: ReadableStream<Uint8Array>,
   abortSignal: AbortSignal | undefined,
-  onChunk: (chunk: BackendChunk) => void
+  onChunk: (chunk: ChatStreamChunk) => void
 ) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -354,14 +333,14 @@ async function readNdjson(
   readLine(buffer, onChunk);
 }
 
-function readLine(line: string, onChunk: (chunk: BackendChunk) => void) {
+function readLine(line: string, onChunk: (chunk: ChatStreamChunk) => void) {
   const trimmed = line.trim();
 
   if (!trimmed) {
     return;
   }
 
-  onChunk(JSON.parse(trimmed) as BackendChunk);
+  onChunk(JSON.parse(trimmed) as ChatStreamChunk);
 }
 
 async function readErrorResponse(response: Response) {
@@ -374,6 +353,137 @@ async function readErrorResponse(response: Response) {
 
 function readErrorMessage(value: unknown) {
   return typeof value === "string" ? value : "SignalGraph request failed.";
+}
+
+function readDirectPayload(value: unknown): DirectChatPayload {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed direct chat payload.");
+  }
+
+  const payload = value as Partial<DirectChatPayload>;
+
+  if (typeof payload.answer !== "string") {
+    throw new Error("Malformed direct chat payload.");
+  }
+
+  return {
+    answer: payload.answer,
+    error: typeof payload.error === "string" ? payload.error : undefined,
+    fallbackFrom:
+      typeof payload.fallbackFrom === "string" ? payload.fallbackFrom : undefined,
+    model: typeof payload.model === "string" ? payload.model : undefined,
+    modelHonored:
+      typeof payload.modelHonored === "boolean" ? payload.modelHonored : undefined,
+    requestedModel:
+      typeof payload.requestedModel === "string"
+        ? payload.requestedModel
+        : undefined,
+    source:
+      payload.source === "0g-compute" || payload.source === "fallback"
+        ? payload.source
+        : undefined,
+    teeVerification:
+      payload.teeVerification && typeof payload.teeVerification === "object"
+        ? payload.teeVerification
+        : undefined,
+    teeVerified:
+      typeof payload.teeVerified === "boolean" || payload.teeVerified === null
+        ? payload.teeVerified
+        : undefined,
+    title: typeof payload.title === "string" ? payload.title : undefined,
+    usedModel:
+      typeof payload.usedModel === "string" ? payload.usedModel : undefined,
+  };
+}
+
+function readProgressEvent(value: unknown): WorkflowProgressEvent {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed workflow progress event.");
+  }
+
+  const event = value as Partial<WorkflowProgressEvent>;
+
+  if (
+    typeof event.stepId !== "string" ||
+    typeof event.agent !== "string" ||
+    typeof event.skill !== "string" ||
+    !isWorkflowStatus(event.status) ||
+    typeof event.summary !== "string" ||
+    typeof event.timestamp !== "string"
+  ) {
+    throw new Error("Malformed workflow progress event.");
+  }
+
+  return {
+    agent: event.agent,
+    completedAt:
+      typeof event.completedAt === "string" ? event.completedAt : undefined,
+    durationMs:
+      typeof event.durationMs === "number" ? event.durationMs : undefined,
+    error: typeof event.error === "string" ? event.error : undefined,
+    execution: event.execution,
+    model: typeof event.model === "string" ? event.model : undefined,
+    sessionId: typeof event.sessionId === "string" ? event.sessionId : undefined,
+    skill: event.skill,
+    startedAt: typeof event.startedAt === "string" ? event.startedAt : undefined,
+    status: event.status,
+    stepId: event.stepId,
+    summary: event.summary,
+    timestamp: event.timestamp,
+  };
+}
+
+function readWalletAuth(value: unknown): WalletAuth | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Partial<WalletAuth>;
+
+  if (
+    typeof record.address !== "string" ||
+    typeof record.message !== "string" ||
+    typeof record.signature !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    address: record.address,
+    message: record.message,
+    signature: record.signature,
+  };
+}
+
+function readDiscoverPayload(value: unknown): DiscoverPayload {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed discovery result payload.");
+  }
+
+  const payload = value as Partial<DiscoverPayload>;
+
+  if (
+    typeof payload.topic !== "string" ||
+    typeof payload.generatedAt !== "string" ||
+    !Array.isArray(payload.sources) ||
+    !Array.isArray(payload.errors) ||
+    !payload.orchestration ||
+    !payload.finalConclusion ||
+    !payload.finalAnswer
+  ) {
+    throw new Error("Malformed discovery result payload.");
+  }
+
+  return payload as DiscoverPayload;
+}
+
+function isWorkflowStatus(value: unknown): value is WorkflowProgressEvent["status"] {
+  return (
+    value === "pending" ||
+    value === "running" ||
+    value === "complete" ||
+    value === "failed"
+  );
 }
 
 function formatProgressReasoning(event: WorkflowProgressEvent) {

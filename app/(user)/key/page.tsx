@@ -1,13 +1,5 @@
-import CreateKey from "@/components/CreateKey";
-import ExampleKey from "@/components/ExampleKey";
-import FlowKey from "@/components/FlowKey";
+import ZeroGApiConsole from "@/components/ZeroGApiConsole";
 
-export default function page() {
-  return (
-    <div className="space-y-10">
-      <FlowKey />
-      <CreateKey />
-      <ExampleKey />
-    </div>
-  );
+export default function ApiConsolePage() {
+  return <ZeroGApiConsole />;
 }

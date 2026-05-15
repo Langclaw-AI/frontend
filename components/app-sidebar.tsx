@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import {
   Sidebar,
@@ -26,6 +27,7 @@ import {
   Database,
   LogOut,
   MessagesSquare,
+  Search,
   Settings,
   Trash2,
   User2,
@@ -42,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
+import { formatUnits } from "viem";
 import { useBalance, useChains, useConnection, useDisconnect } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Button } from "./ui/button";
@@ -75,15 +78,19 @@ export function AppSidebar() {
   const { data: balanceUser } = useBalance({
     address: address,
   });
+  const balanceLabel = useMemo(() => {
+    if (!balanceUser) return null;
+    return `${formatUnits(balanceUser.value, balanceUser.decimals).slice(0, 5)} ${balanceUser.symbol}`;
+  }, [balanceUser]);
   const chains = useChains();
   const disconnect = useDisconnect();
   const pinnedSessions = useMemo(
     () => sessions.filter((session) => session.pinned),
-    [sessions]
+    [sessions],
   );
   const recentSessions = useMemo(
     () => sessions.filter((session) => !session.pinned),
-    [sessions]
+    [sessions],
   );
 
   const refreshSessions = useCallback(async () => {
@@ -102,10 +109,11 @@ export function AppSidebar() {
       setSessions(nextSessions);
       setSessionsError("");
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to load chats.";
       setSessions([]);
-      setSessionsError(
-        error instanceof Error ? error.message : "Unable to load chats."
-      );
+      setSessionsError(message);
+      toast.error(message);
     } finally {
       setIsLoadingSessions(false);
     }
@@ -123,7 +131,10 @@ export function AppSidebar() {
     const timeoutId = window.setTimeout(() => {
       void checkBackendHealth()
         .then(() => setBackendOnline(true))
-        .catch(() => setBackendOnline(false));
+        .catch(() => {
+          setBackendOnline(false);
+          toast.error("Backend offline");
+        });
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -141,14 +152,21 @@ export function AppSidebar() {
 
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
-      const wallet = await getWalletAuth();
-      await deleteChatSession(wallet, sessionId);
-      setSessions((current) =>
-        current.filter((session) => session.id !== sessionId)
-      );
-      dispatchChatSessionsUpdated();
+      try {
+        const wallet = await getWalletAuth();
+        await deleteChatSession(wallet, sessionId);
+        setSessions((current) =>
+          current.filter((session) => session.id !== sessionId),
+        );
+        dispatchChatSessionsUpdated();
+        toast.success("Chat deleted");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Unable to delete chat.",
+        );
+      }
     },
-    [getWalletAuth]
+    [getWalletAuth],
   );
 
   // if (isReconnecting) {
@@ -171,7 +189,9 @@ export function AppSidebar() {
                   : "bg-destructive"
             }`}
           />
-          <span>{backendOnline === false ? "Backend offline" : "Backend online"}</span>
+          <span>
+            {backendOnline === false ? "Backend offline" : "Backend online"}
+          </span>
         </div>
         {isConnected && (
           <Card>
@@ -188,9 +208,7 @@ export function AppSidebar() {
                     ? `${address.slice(0, 6)}...${address.slice(-4)}`
                     : ""}
                 </p>
-                <p>
-                  ({balanceUser?.decimals} {balanceUser?.symbol})
-                </p>
+                <p>{balanceLabel ? `(${balanceLabel})` : null}</p>
               </div>
             </CardContent>
           </Card>
@@ -200,6 +218,14 @@ export function AppSidebar() {
             <Link href="/chat">
               <CircleFadingPlus />
               <span>New Chat</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton asChild>
+            <Link href="/discover">
+              <Search />
+              <span>Discovery</span>
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -223,7 +249,7 @@ export function AppSidebar() {
           <SidebarMenuButton asChild>
             <Link href="/key">
               <Cable />
-              <span>API</span>
+              <span>API Console</span>
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -318,9 +344,7 @@ export function AppSidebar() {
                 <DropdownMenuContent>
                   <DropdownMenuItem>
                     <CreditCard />
-                    <span>
-                      {balanceUser?.decimals} {balanceUser?.symbol}
-                    </span>
+                    <span>{balanceLabel ?? "—"}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => disconnect.mutate()}>
                     <LogOut />
