@@ -11,18 +11,18 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import React from "react";
 
 const ZeroGChain = {
-  id: 16602,
-  name: "0G Galileo Testnet",
+  id: 16661,
+  name: "0G Mainnet",
   // iconUrl: "https://s2.coinmarketcap.com/static/img/coins/64x64/5805.png",
   // iconBackground: "#fff",
-  nativeCurrency: { name: "0G Testnet", symbol: "0G", decimals: 18 },
+  nativeCurrency: { name: "0G Mainnet", symbol: "0G", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://evmrpc-testnet.0g.ai"] },
+    default: { http: ["https://evmrpc.0g.ai"] },
   },
   blockExplorers: {
     default: {
-      name: "0G-Galileo-Testnet",
-      url: "https://chainscan-galileo.0g.ai",
+      name: "0G Mainnet",
+      url: "https://chainscan.0g.ai",
     },
   },
   // contracts: {

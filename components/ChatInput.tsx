@@ -1,12 +1,6 @@
 "use client";
 
 import {
-  Attachment,
-  AttachmentPreview,
-  AttachmentRemove,
-  Attachments,
-} from "@/components/ai-elements/attachments";
-import {
   ModelSelector,
   ModelSelectorContent,
   ModelSelectorEmpty,
@@ -22,11 +16,6 @@ import {
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import {
   PromptInput,
-  PromptInputActionAddAttachments,
-  PromptInputActionAddScreenshot,
-  PromptInputActionMenu,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuTrigger,
   PromptInputBody,
   PromptInputButton,
   PromptInputFooter,
@@ -34,10 +23,16 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
-  usePromptInputAttachments,
+  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { SpeechInput } from "@/components/ai-elements/speech-input";
+import {
+  Transcription,
+  TranscriptionSegment,
+} from "@/components/ai-elements/transcription";
 import { CheckIcon, GlobeIcon } from "lucide-react";
-import type { FileUIPart } from "ai";
+import type { Experimental_TranscriptionResult } from "ai";
 import { memo, useCallback, useState } from "react";
 import { SparklesText } from "./ui/sparkles-text";
 import { useRouter } from "next/navigation";
@@ -55,26 +50,13 @@ import { useWalletSession } from "@/hooks/use-wallet-session";
 
 const SUBMITTING_TIMEOUT = 200;
 const STREAMING_TIMEOUT = 2000;
+const CHAT_INPUT_SUGGESTIONS = [
+  "Find the strongest AI x Web3 product trends this week",
+  "Map evidence for 0G agent infrastructure",
+  "Give me a builder-ready demo angle",
+];
 
-interface AttachmentItemProps {
-  attachment: FileUIPart & { id: string };
-  onRemove: (id: string) => void;
-}
-
-const AttachmentItem = memo(({ attachment, onRemove }: AttachmentItemProps) => {
-  const handleRemove = useCallback(
-    () => onRemove(attachment.id),
-    [onRemove, attachment.id],
-  );
-  return (
-    <Attachment data={attachment} key={attachment.id} onRemove={handleRemove}>
-      <AttachmentPreview />
-      <AttachmentRemove />
-    </Attachment>
-  );
-});
-
-AttachmentItem.displayName = "AttachmentItem";
+type TranscriptionSegments = Experimental_TranscriptionResult["segments"];
 
 interface ModelItemProps {
   m: (typeof CHAT_MODELS)[number];
@@ -104,30 +86,71 @@ const ModelItem = memo(({ m, selectedModel, onSelect }: ModelItemProps) => {
 
 ModelItem.displayName = "ModelItem";
 
-const PromptInputAttachmentsDisplay = () => {
-  const attachments = usePromptInputAttachments();
+const ChatInputSuggestions = () => {
+  const { textInput } = usePromptInputController();
 
-  const handleRemove = useCallback(
-    (id: string) => attachments.remove(id),
-    [attachments],
+  return (
+    <Suggestions className="max-w-2xl justify-center">
+      {CHAT_INPUT_SUGGESTIONS.map((suggestion) => (
+        <Suggestion
+          key={suggestion}
+          onClick={textInput.setInput}
+          suggestion={suggestion}
+        />
+      ))}
+    </Suggestions>
+  );
+};
+
+function ChatInputSpeechButton({
+  onTranscript,
+}: {
+  onTranscript: (text: string) => void;
+}) {
+  const { textInput } = usePromptInputController();
+
+  const handleTranscriptionChange = useCallback(
+    (text: string) => {
+      textInput.setInput(appendSpeechText(textInput.value, text));
+      onTranscript(text);
+    },
+    [onTranscript, textInput]
   );
 
-  if (attachments.files.length === 0) {
+  return (
+    <SpeechInput
+      aria-label="Dictate prompt"
+      lang="en-US"
+      onTranscriptionChange={handleTranscriptionChange}
+      size="icon-sm"
+      variant="ghost"
+    />
+  );
+}
+
+function SpeechTranscriptionPreview({
+  segments,
+}: {
+  segments: TranscriptionSegments;
+}) {
+  if (!segments.length) {
     return null;
   }
 
   return (
-    <Attachments variant="inline">
-      {attachments.files.map((attachment) => (
-        <AttachmentItem
-          attachment={attachment}
-          key={attachment.id}
-          onRemove={handleRemove}
-        />
-      ))}
-    </Attachments>
+    <div className="border-b px-3 py-2">
+      <Transcription segments={segments}>
+        {(segment, index) => (
+          <TranscriptionSegment
+            index={index}
+            key={`${segment.startSecond}-${segment.text}`}
+            segment={segment}
+          />
+        )}
+      </Transcription>
+    </div>
   );
-};
+}
 
 const ChatInput = () => {
   const router = useRouter();
@@ -136,6 +159,9 @@ const ChatInput = () => {
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [researchTrend, setResearchTrend] = useState(false);
   const [error, setError] = useState("");
+  const [speechSegments, setSpeechSegments] = useState<TranscriptionSegments>(
+    []
+  );
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
   >("ready");
@@ -147,12 +173,22 @@ const ChatInput = () => {
     setModelSelectorOpen(false);
   }, []);
 
+  const handleSpeechTranscript = useCallback((text: string) => {
+    setSpeechSegments((segments) => appendTranscriptionSegment(segments, text));
+  }, []);
+
   const handleSubmit = useCallback(async (message: PromptInputMessage) => {
     const text = message.text.trim();
     const hasText = Boolean(text);
     const hasAttachments = Boolean(message.files?.length);
 
     if (!(hasText || hasAttachments)) {
+      return;
+    }
+
+    if (hasAttachments) {
+      setError("File attachments are not supported by the current chat backend.");
+      setStatus("error");
       return;
     }
 
@@ -164,6 +200,7 @@ const ChatInput = () => {
 
     setStatus("submitted");
     setError("");
+    setSpeechSegments([]);
 
     try {
       const wallet = await getWalletAuth();
@@ -197,27 +234,21 @@ const ChatInput = () => {
   }, [getWalletAuth, isConnected, model, researchTrend, router]);
 
   return (
-    <div className="size-full mx-auto flex flex-col h-full justify-center items-center gap-10">
-      <div className="flex items-end text-4xl gap-2">
+    <div className="mx-auto flex size-full h-full flex-col items-center justify-center gap-8 px-4">
+      <div className="flex flex-wrap items-end justify-center gap-2 text-center font-medium text-3xl md:text-4xl">
         <span>Welcome to</span>
-        <SparklesText className="text-5xl">Langclaw,</SparklesText>
+        <SparklesText className="text-4xl md:text-5xl">Langclaw,</SparklesText>
         <span>how can I help?</span>
       </div>
       <PromptInputProvider>
-        <PromptInput globalDrop multiple onSubmit={handleSubmit}>
-          <PromptInputAttachmentsDisplay />
+        <PromptInput className="w-full max-w-2xl" onSubmit={handleSubmit}>
+          <SpeechTranscriptionPreview segments={speechSegments} />
           <PromptInputBody>
             <PromptInputTextarea />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              <PromptInputActionMenu>
-                <PromptInputActionMenuTrigger />
-                <PromptInputActionMenuContent>
-                  <PromptInputActionAddAttachments />
-                  <PromptInputActionAddScreenshot />
-                </PromptInputActionMenuContent>
-              </PromptInputActionMenu>
+              <ChatInputSpeechButton onTranscript={handleSpeechTranscript} />
               <PromptInputButton
                 onClick={() => setResearchTrend((value) => !value)}
                 variant={researchTrend ? "default" : "ghost"}
@@ -268,6 +299,7 @@ const ChatInput = () => {
             <PromptInputSubmit disabled={isSigning} status={status} />
           </PromptInputFooter>
         </PromptInput>
+        <ChatInputSuggestions />
       </PromptInputProvider>
       {error && (
         <p className="max-w-2xl text-center text-sm text-destructive">
@@ -277,5 +309,38 @@ const ChatInput = () => {
     </div>
   );
 };
+
+function appendSpeechText(currentText: string, transcript: string) {
+  const next = transcript.trim();
+
+  if (!next) {
+    return currentText;
+  }
+
+  return currentText.trim() ? `${currentText.trim()} ${next}` : next;
+}
+
+function appendTranscriptionSegment(
+  segments: TranscriptionSegments,
+  text: string
+): TranscriptionSegments {
+  const transcript = text.trim();
+
+  if (!transcript) {
+    return segments;
+  }
+
+  const startSecond = segments.at(-1)?.endSecond ?? 0;
+  const duration = Math.max(1, Math.ceil(transcript.split(/\s+/).length / 2));
+
+  return [
+    ...segments,
+    {
+      endSecond: startSecond + duration,
+      startSecond,
+      text: transcript,
+    },
+  ];
+}
 
 export default ChatInput;

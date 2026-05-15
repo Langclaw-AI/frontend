@@ -5,6 +5,17 @@ import type {
   StoredChatMessage,
   WorkflowProgressEvent,
 } from "@/lib/signalgraph-api";
+import type { UIMessage } from "ai";
+
+export type LangclawMessageMetadata = {
+  directAnswer?: DirectChatPayload;
+  error?: string;
+  progressEvents?: WorkflowProgressEvent[];
+  result?: DiscoverPayload;
+  stopped?: boolean;
+};
+
+export type LangclawUIMessage = UIMessage<LangclawMessageMetadata>;
 
 export const CHAT_MODELS = [
   {
@@ -95,6 +106,89 @@ export function updateSessionMessages(
     title: session.title || createSessionTitle(messages[0]?.content || "Chat"),
     updatedAt: new Date().toISOString(),
   };
+}
+
+export function storedMessagesToUIMessages(
+  messages: StoredChatMessage[]
+): LangclawUIMessage[] {
+  return messages.map(storedMessageToUIMessage);
+}
+
+export function storedMessageToUIMessage(
+  message: StoredChatMessage
+): LangclawUIMessage {
+  return {
+    id: message.id,
+    metadata: {
+      directAnswer: message.directAnswer,
+      error: message.error,
+      progressEvents: message.progressEvents,
+      result: message.result,
+      stopped: message.stopped,
+    },
+    parts: message.content
+      ? [
+          {
+            text: message.content,
+            type: "text",
+          },
+        ]
+      : [],
+    role: message.role,
+  };
+}
+
+export function uiMessagesToStoredMessages(
+  messages: LangclawUIMessage[]
+): StoredChatMessage[] {
+  return messages
+    .filter(
+      (message): message is LangclawUIMessage & { role: "assistant" | "user" } =>
+        message.role === "assistant" || message.role === "user"
+    )
+    .map((message) => ({
+      content: getUIMessageText(message),
+      directAnswer: message.metadata?.directAnswer,
+      error: message.metadata?.error,
+      id: message.id,
+      progressEvents: message.metadata?.progressEvents,
+      result: message.metadata?.result,
+      role: message.role,
+      stopped: message.metadata?.stopped,
+    }));
+}
+
+export function getUIMessageText(message: Pick<LangclawUIMessage, "parts">) {
+  return message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
+export function markLatestAssistantStopped(
+  messages: LangclawUIMessage[]
+): LangclawUIMessage[] {
+  const assistantIndex = [...messages]
+    .reverse()
+    .findIndex((message) => message.role === "assistant");
+
+  if (assistantIndex === -1) {
+    return messages;
+  }
+
+  const index = messages.length - 1 - assistantIndex;
+
+  return messages.map((message, messageIndex) =>
+    messageIndex === index
+      ? {
+          ...message,
+          metadata: {
+            ...message.metadata,
+            stopped: true,
+          },
+        }
+      : message
+  );
 }
 
 export function createSessionTitle(message: string) {
