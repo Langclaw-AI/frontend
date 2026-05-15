@@ -107,9 +107,7 @@ export default function UsagePage() {
     null,
   );
   const [depositAmount, setDepositAmount] = useState("0.1");
-  const [depositReference, setDepositReference] = useState(
-    createBytes32Reference,
-  );
+  const [depositReference, setDepositReference] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [depositHash, setDepositHash] = useState<Hash | undefined>();
   const [withdrawHash, setWithdrawHash] = useState<Hash | undefined>();
@@ -193,6 +191,14 @@ export default function UsagePage() {
     !isWithdrawPending &&
     !isConfirmingWithdraw &&
     loading !== "onchain-withdraw";
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDepositReference(createBytes32Reference());
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const loadQuote = useCallback(async () => {
     try {
