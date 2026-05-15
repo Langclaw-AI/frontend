@@ -4,6 +4,8 @@ import Script from "next/script";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import "@rainbow-me/rainbowkit/styles.css";
+import Web3Provider from "@/lib/Web3Provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -97,7 +99,9 @@ export default function RootLayout({
       )}
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col">
-        <TooltipProvider>{children}</TooltipProvider>
+        <Web3Provider>
+          <TooltipProvider>{children}</TooltipProvider>
+        </Web3Provider>
         <Script
           id="extension-hydration-cleanup"
           strategy="beforeInteractive"

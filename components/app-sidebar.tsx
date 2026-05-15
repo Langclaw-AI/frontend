@@ -25,7 +25,6 @@ import {
   MessagesSquare,
   Settings,
   User2,
-  Wallet,
 } from "lucide-react";
 import {
   Collapsible,
@@ -38,6 +37,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+
+import { useBalance, useChains, useConnection, useDisconnect } from "wagmi";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { Button } from "./ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
 
 const projects = [
   {
@@ -56,19 +66,48 @@ const projects = [
     name: "Model Benchmark",
     url: "/chat?project=model-benchmark",
   },
-  {
-    name: "Workspace Settings",
-    url: "/chat?project=workspace-settings",
-  },
 ];
 
 export function AppSidebar() {
+  const { isConnected, address } = useConnection();
+  const { data: balanceUser } = useBalance({
+    address: address,
+  });
+  const chains = useChains();
+  const disconnect = useDisconnect();
+
+  // if (isReconnecting) {
+  //   <p>hai</p>;
+  // }
+
   return (
     <Sidebar>
       <SidebarHeader>
         <Link href={"/"}>
-          <span className="text-lg font-bold mb-5">Langclaw.ai</span>
+          <span className="text-lg font-bold mb-5">Langclaw</span>
         </Link>
+        {isConnected && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Connected</CardTitle>
+              <CardDescription>
+                <p>{chains[0].name}</p>
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-1">
+                <p>
+                  {address
+                    ? `${address.slice(0, 6)}...${address.slice(-4)}`
+                    : ""}
+                </p>
+                <p>
+                  ({balanceUser?.decimals} {balanceUser?.symbol})
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
             <Link href="/chat">
@@ -81,7 +120,7 @@ export function AppSidebar() {
           <SidebarMenuButton asChild>
             <Link href="/task">
               <CalendarSync />
-              <span>Automatation Task</span>
+              <span>Automation Task</span>
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -111,10 +150,10 @@ export function AppSidebar() {
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
-            <a href="#">
+            <Link href="/settings">
               <Settings />
               <span>Settings</span>
-            </a>
+            </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarHeader>
@@ -176,27 +215,44 @@ export function AppSidebar() {
         </Collapsible>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton>
-                  <User2 /> Address Wallet
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem>
-                  <CreditCard />
-                  <span>1000.000 OG</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <LogOut />
-                  <span>Disconnect Wallet</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {isConnected ? (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton className="bg-primary text-primary-foreground">
+                    <User2 />
+                    {address
+                      ? `${address.slice(0, 6)}...${address.slice(-4)}`
+                      : "Wallet"}
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem>
+                    <CreditCard />
+                    <span>
+                      {balanceUser?.decimals} {balanceUser?.symbol}
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => disconnect.mutate()}>
+                    <LogOut />
+                    <span>Disconnect Wallet</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        ) : (
+          <SidebarMenu>
+            <ConnectButton.Custom>
+              {({ openConnectModal }) => (
+                <Button onClick={openConnectModal} type="button">
+                  Connect Wallet
+                </Button>
+              )}
+            </ConnectButton.Custom>
+          </SidebarMenu>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
