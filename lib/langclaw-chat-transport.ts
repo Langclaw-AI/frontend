@@ -595,11 +595,22 @@ function readWalletAuth(value: unknown): WalletAuth | undefined {
 
   const record = value as Partial<WalletAuth>;
 
-  if (
-    typeof record.address !== "string" ||
-    typeof record.message !== "string" ||
-    typeof record.signature !== "string"
-  ) {
+  if (typeof record.address !== "string") {
+    return undefined;
+  }
+
+  if (typeof record.sessionToken === "string") {
+    return {
+      address: record.address,
+      sessionExpiresAt:
+        typeof record.sessionExpiresAt === "string"
+          ? record.sessionExpiresAt
+          : undefined,
+      sessionToken: record.sessionToken,
+    };
+  }
+
+  if (typeof record.message !== "string" || typeof record.signature !== "string") {
     return undefined;
   }
 

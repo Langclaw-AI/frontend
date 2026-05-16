@@ -45,6 +45,7 @@ import {
   readFriendlyError,
   revokeApiKey,
   type ApiKeyRecord,
+  type WalletAuthPurpose,
 } from "@/lib/signalgraph-api";
 
 export default function CreateKey() {
@@ -87,13 +88,13 @@ export default function CreateKey() {
     return () => window.clearTimeout(timeoutId);
   }, [loadKeys]);
 
-  const requireWallet = async () => {
+  const requireWallet = async (purpose?: WalletAuthPurpose) => {
     if (!isConnected) {
       openWalletModal();
       throw new Error("Choose a wallet to manage API keys.");
     }
 
-    return getWalletAuth();
+    return getWalletAuth(purpose ? { force: true, purpose } : undefined);
   };
 
   const handleCreate = async () => {
@@ -108,7 +109,7 @@ export default function CreateKey() {
     setError("");
 
     try {
-      const wallet = await requireWallet();
+      const wallet = await requireWallet("api-key:create");
       const payload = await createApiKey(wallet, trimmedName);
       setKeys((current) => [payload.key, ...current]);
       setSecret(payload.secret);

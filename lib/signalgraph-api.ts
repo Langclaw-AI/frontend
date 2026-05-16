@@ -386,8 +386,24 @@ export type ChatSession = {
 
 export type WalletAuth = {
   address: string;
+  message?: string;
+  sessionExpiresAt?: string;
+  sessionToken?: string;
+  signature?: string;
+};
+
+export type WalletAuthPurpose = "api-key:create" | "session";
+
+export type WalletChallenge = {
+  address: string;
+  chainId: number;
+  domain: string;
+  expiresAt: string;
+  issuedAt: string;
   message: string;
-  signature: string;
+  nonce: string;
+  purpose: WalletAuthPurpose;
+  uri: string;
 };
 
 export type ApiKeyRecord = {
@@ -988,6 +1004,48 @@ export async function checkBackendHealth() {
   const response = await getRequest("/health");
 
   return readJsonResponse<{ ok: boolean; service: string }>(response);
+}
+
+export async function requestWalletChallenge(input: {
+  address: string;
+  chainId?: number;
+  purpose?: WalletAuthPurpose;
+}) {
+  const response = await postJson("/api/wallet/challenge", input);
+  const payload = await readJsonResponse<{
+    challenge?: WalletChallenge;
+    configured: true;
+    error?: string;
+  }>(response);
+
+  if (payload.error) {
+    throw new SignalGraphApiError(payload.error, response.status);
+  }
+
+  if (!payload.challenge) {
+    throw new SignalGraphApiError("Wallet challenge was not returned.", 500);
+  }
+
+  return payload.challenge;
+}
+
+export async function createWalletSession(wallet: WalletAuth) {
+  const response = await postJson("/api/wallet/session", { wallet });
+  const payload = await readJsonResponse<{
+    configured: true;
+    error?: string;
+    wallet?: WalletAuth;
+  }>(response);
+
+  if (payload.error) {
+    throw new SignalGraphApiError(payload.error, response.status);
+  }
+
+  if (!payload.wallet?.sessionToken) {
+    throw new SignalGraphApiError("Wallet session was not returned.", 500);
+  }
+
+  return payload.wallet;
 }
 
 export async function runDiscover(input: {
@@ -1670,11 +1728,7 @@ export async function getZeroGAsyncJob({
       reservation_id: reservationId,
       verify_tee: verifyTee ? "true" : undefined,
     })}`,
-    {
-      "X-Langclaw-Wallet-Address": wallet.address,
-      "X-Langclaw-Wallet-Message": wallet.message,
-      "X-Langclaw-Wallet-Signature": wallet.signature,
-    },
+    walletAuthHeaders(wallet),
     signal,
   );
 
@@ -1933,6 +1987,26 @@ async function getAdminRequest(path: string, adminKey: string) {
   return getRequest(path, {
     "X-Langclaw-Admin-Key": adminKey,
   });
+}
+
+function walletAuthHeaders(wallet: WalletAuth) {
+  const headers: Record<string, string> = {
+    "X-Langclaw-Wallet-Address": wallet.address,
+  };
+
+  if (wallet.sessionToken) {
+    headers["X-Langclaw-Wallet-Session"] = wallet.sessionToken;
+  }
+
+  if (wallet.message) {
+    headers["X-Langclaw-Wallet-Message"] = wallet.message;
+  }
+
+  if (wallet.signature) {
+    headers["X-Langclaw-Wallet-Signature"] = wallet.signature;
+  }
+
+  return headers;
 }
 
 async function postJson(path: string, body: unknown, signal?: AbortSignal) {

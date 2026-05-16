@@ -4,16 +4,21 @@ import { useCallback } from "react";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useConnection, useSignMessage } from "wagmi";
 
-import type { WalletAuth } from "@/lib/signalgraph-api";
+import {
+  createWalletSession,
+  requestWalletChallenge,
+  type WalletAuth,
+  type WalletAuthPurpose,
+} from "@/lib/signalgraph-api";
 
 export const WALLET_AUTH_UPDATED_EVENT = "langclaw-wallet-auth-updated";
 
-const WALLET_LOGIN_PREFIX = "Login to Langclaw";
-const WALLET_AUTH_STORAGE_PREFIX = "langclaw.walletAuth.v1";
-const MAX_CACHED_WALLET_AUTH_AGE_MS = 29 * 24 * 60 * 60 * 1000;
+const WALLET_AUTH_STORAGE_PREFIX = "langclaw.walletSession.v2";
+const SESSION_REFRESH_MARGIN_MS = 60 * 1000;
 
 type WalletAuthOptions = {
   force?: boolean;
+  purpose?: WalletAuthPurpose;
 };
 
 export function useWalletSession() {
@@ -31,7 +36,9 @@ export function useWalletSession() {
         throw new Error("Connect your wallet first.");
       }
 
-      if (!options.force) {
+      const purpose = options.purpose ?? "session";
+
+      if (purpose === "session" && !options.force) {
         const cached = readCachedWalletAuth(address);
 
         if (cached) {
@@ -39,14 +46,24 @@ export function useWalletSession() {
         }
       }
 
-      const message = buildWalletLoginMessage(address);
-      const signature = await signMessageAsync({ message });
-      const walletAuth = { address, message, signature };
+      const challenge = await requestWalletChallenge({ address, purpose });
+      const signature = await signMessageAsync({ message: challenge.message });
+      const walletAuth = {
+        address: challenge.address,
+        message: challenge.message,
+        signature,
+      };
 
-      writeCachedWalletAuth(walletAuth);
+      if (purpose !== "session") {
+        return walletAuth;
+      }
+
+      const session = await createWalletSession(walletAuth);
+
+      writeCachedWalletAuth(session);
       dispatchWalletAuthUpdated();
 
-      return walletAuth;
+      return session;
     },
     [address, isConnected, signMessageAsync]
   );
@@ -70,10 +87,6 @@ export function useWalletSession() {
   };
 }
 
-export function buildWalletLoginMessage(address: string) {
-  return `${WALLET_LOGIN_PREFIX}\nAddress: ${address}\nTime: ${new Date().toISOString()}`;
-}
-
 export function readCachedWalletAuth(address?: string | null) {
   if (!address || typeof window === "undefined") {
     return null;
@@ -90,8 +103,8 @@ export function readCachedWalletAuth(address?: string | null) {
 
     if (
       typeof parsed.address !== "string" ||
-      typeof parsed.message !== "string" ||
-      typeof parsed.signature !== "string"
+      typeof parsed.sessionExpiresAt !== "string" ||
+      typeof parsed.sessionToken !== "string"
     ) {
       return null;
     }
@@ -100,31 +113,11 @@ export function readCachedWalletAuth(address?: string | null) {
       return null;
     }
 
-    if (!parsed.message.startsWith(WALLET_LOGIN_PREFIX)) {
-      return null;
-    }
-
-    const messageAddress = parsed.message
-      .split("\n")
-      .find((line) => line.startsWith("Address: "))
-      ?.replace("Address: ", "")
-      .trim();
-
-    if (messageAddress?.toLowerCase() !== address.toLowerCase()) {
-      return null;
-    }
-
-    const messageTime = parsed.message
-      .split("\n")
-      .find((line) => line.startsWith("Time: "))
-      ?.replace("Time: ", "")
-      .trim();
-    const signedAt = messageTime ? new Date(messageTime).getTime() : Number.NaN;
+    const expiresAt = new Date(parsed.sessionExpiresAt).getTime();
 
     if (
-      Number.isNaN(signedAt) ||
-      Date.now() - signedAt > MAX_CACHED_WALLET_AUTH_AGE_MS ||
-      signedAt - Date.now() > 5 * 60 * 1000
+      Number.isNaN(expiresAt) ||
+      expiresAt - Date.now() <= SESSION_REFRESH_MARGIN_MS
     ) {
       return null;
     }
