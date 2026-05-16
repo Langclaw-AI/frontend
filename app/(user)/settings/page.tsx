@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Bell,
   Bot,
+  BrainCircuit,
   Database,
   Loader2,
   Mail,
@@ -42,6 +43,7 @@ import {
 import { useWalletSession } from "@/hooks/use-wallet-session";
 import {
   createAutomationTelegramLink,
+  getMemorySettings,
   getAutomationDashboard,
   getUsageBalance,
   pollAutomationTelegramLink,
@@ -52,7 +54,9 @@ import {
   type AutomationDashboard,
   type AutomationNotificationChannel,
   type AutomationSettings,
+  type MemorySettings,
   type UsageBalancePayload,
+  updateMemorySettings,
 } from "@/lib/signalgraph-api";
 
 export default function Page() {
@@ -60,6 +64,9 @@ export default function Page() {
     useWalletSession();
   const [dashboard, setDashboard] = useState<AutomationDashboard | null>(null);
   const [settings, setSettings] = useState<AutomationSettings | null>(null);
+  const [memorySettings, setMemorySettings] = useState<MemorySettings | null>(
+    null,
+  );
   const [balance, setBalance] = useState<UsageBalancePayload | null>(null);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
@@ -71,6 +78,7 @@ export default function Page() {
     if (!isConnected) {
       setDashboard(null);
       setSettings(null);
+      setMemorySettings(null);
       setBalance(null);
       return;
     }
@@ -80,12 +88,14 @@ export default function Page() {
 
     try {
       const wallet = await getWalletAuth();
-      const [automation, usage] = await Promise.all([
+      const [automation, usage, memory] = await Promise.all([
         getAutomationDashboard(wallet),
         getUsageBalance(wallet).catch(() => null),
+        getMemorySettings(wallet),
       ]);
       setDashboard(automation);
       setSettings(automation.settings);
+      setMemorySettings(memory);
       setBalance(usage);
       setEmail(automation.settings.notificationEmail ?? "");
     } catch (err) {
@@ -116,6 +126,12 @@ export default function Page() {
 
   const patchSettings = (patch: Partial<AutomationSettings>) => {
     setSettings((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const patchMemorySettings = (patch: Partial<MemorySettings>) => {
+    setMemorySettings((current) =>
+      current ? { ...current, ...patch } : current,
+    );
   };
 
   const toggleChannel = (channel: AutomationNotificationChannel) => {
@@ -149,19 +165,34 @@ export default function Page() {
 
     try {
       const wallet = await requireWallet();
-      const next = await updateAutomationSettings(wallet, {
-        autoPauseRepeatedFailures: settings.autoPauseRepeatedFailures,
-        dailyLimit0G: settings.dailyLimit0G,
-        failureNotification: settings.failureNotification,
-        limitBehavior: settings.limitBehavior,
-        lowBalanceThreshold0G: settings.lowBalanceThreshold0G,
-        monthlyCap0G: settings.monthlyCap0G,
-        notificationChannels: settings.notificationChannels,
-        retryPolicy: settings.retryPolicy,
-        thresholdAction: settings.thresholdAction,
-        writeRunLogsToMemory: settings.writeRunLogsToMemory,
-      });
+      const [next, nextMemory] = await Promise.all([
+        updateAutomationSettings(wallet, {
+          autoPauseRepeatedFailures: settings.autoPauseRepeatedFailures,
+          dailyLimit0G: settings.dailyLimit0G,
+          failureNotification: settings.failureNotification,
+          limitBehavior: settings.limitBehavior,
+          lowBalanceThreshold0G: settings.lowBalanceThreshold0G,
+          monthlyCap0G: settings.monthlyCap0G,
+          notificationChannels: settings.notificationChannels,
+          retryPolicy: settings.retryPolicy,
+          thresholdAction: settings.thresholdAction,
+          writeRunLogsToMemory: settings.writeRunLogsToMemory,
+        }),
+        memorySettings
+          ? updateMemorySettings(wallet, {
+              autoDisableLowConfidence:
+                memorySettings.autoDisableLowConfidence,
+              captureEnabled: memorySettings.captureEnabled,
+              crossChatRecall: memorySettings.crossChatRecall,
+              projectScopedRecall: memorySettings.projectScopedRecall,
+              retentionDays: memorySettings.retentionDays,
+            })
+          : Promise.resolve(null),
+      ]);
       setSettings(next);
+      if (nextMemory) {
+        setMemorySettings(nextMemory);
+      }
       toast.success("Settings saved");
     } catch (err) {
       const message = readFriendlyError(err, "Unable to save settings.");
@@ -351,6 +382,10 @@ export default function Page() {
           <TabsTrigger value="automation">
             <SlidersHorizontal />
             Automation
+          </TabsTrigger>
+          <TabsTrigger value="memory">
+            <BrainCircuit />
+            Memory
           </TabsTrigger>
           <TabsTrigger value="account">
             <ShieldCheck />
@@ -621,6 +656,60 @@ export default function Page() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="memory" className="space-y-4">
+          <Card className="rounded-lg" size="sm">
+            <CardHeader>
+              <CardTitle>Memory Capture</CardTitle>
+              <CardDescription>
+                Control which saved memories can be captured and reused.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              <ToggleRow
+                checked={memorySettings?.captureEnabled ?? true}
+                description="Allow Langclaw to save helpful long-term memories."
+                onCheckedChange={(checked) =>
+                  patchMemorySettings({ captureEnabled: checked })
+                }
+                title="Capture memories"
+              />
+              <ToggleRow
+                checked={memorySettings?.crossChatRecall ?? true}
+                description="Reuse active memories across wallet chat sessions."
+                onCheckedChange={(checked) =>
+                  patchMemorySettings({ crossChatRecall: checked })
+                }
+                title="Cross-chat recall"
+              />
+              <ToggleRow
+                checked={memorySettings?.projectScopedRecall ?? true}
+                description="Allow project-scoped memories to inform matching work."
+                onCheckedChange={(checked) =>
+                  patchMemorySettings({ projectScopedRecall: checked })
+                }
+                title="Project-scoped recall"
+              />
+              <ToggleRow
+                checked={memorySettings?.autoDisableLowConfidence ?? false}
+                description="Move low-confidence memories out of recall automatically."
+                onCheckedChange={(checked) =>
+                  patchMemorySettings({ autoDisableLowConfidence: checked })
+                }
+                title="Auto-disable weak memories"
+              />
+              <NumberField
+                label="Retention days"
+                onChange={(value) =>
+                  patchMemorySettings({
+                    retentionDays: readRetentionDays(value),
+                  })
+                }
+                value={`${memorySettings?.retentionDays ?? 365}`}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="account" className="space-y-4">
           <Card className="rounded-lg" size="sm">
             <CardHeader>
@@ -736,4 +825,14 @@ function StatusText({ value }: { value: string }) {
       {value}
     </span>
   );
+}
+
+function readRetentionDays(value: string) {
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return 365;
+  }
+
+  return Math.min(Math.max(parsed, 0), 3650);
 }

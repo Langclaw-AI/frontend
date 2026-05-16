@@ -201,6 +201,14 @@ export type ModelUsageReceipt = {
   status: "charged" | "estimated" | "refunded" | "failed_after_charge";
 };
 
+export type ChatMode = "chat" | "onchain" | "research";
+
+export type DirectChatUsage = ZeroGTokenUsage & {
+  meter?: Record<string, unknown>;
+  model: string;
+  totalCostNeuron?: string;
+};
+
 export type DiscoverPayload = {
   topic: string;
   generatedAt: string;
@@ -274,15 +282,94 @@ export type DirectChatPayload = {
   teeVerified?: boolean | null;
   teeVerification?: ZeroGTeeVerification;
   title?: string;
+  usage?: DirectChatUsage;
   error?: string;
+};
+
+export type OnChainDomain =
+  | "token_discovery"
+  | "market_data"
+  | "pair_liquidity"
+  | "wallet_portfolio"
+  | "wallet_pnl"
+  | "smart_money"
+  | "defi_tvl"
+  | "yield_pools"
+  | "token_security"
+  | "honeypot_detection"
+  | "address_approval_risk"
+  | "social_sentiment"
+  | "raw_onchain_query"
+  | "trading_signal_analysis";
+
+export type OnChainProvider =
+  | "alchemy"
+  | "defillama"
+  | "dexscreener"
+  | "dune"
+  | "etherscan"
+  | "goplus"
+  | "local";
+
+export type OnChainPlanSummary = {
+  intent: string;
+  chain: string;
+  chainId: number;
+  commands: Array<{
+    commandId: string;
+    domain: OnChainDomain;
+    provider: OnChainProvider;
+    reason: string;
+    title: string;
+  }>;
+  domainCount: number;
+  query?: string;
+  registryCommandCount: number;
+  tokenAddress?: string;
+  walletAddress?: string;
+};
+
+export type OnChainToolCallEvent = {
+  commandId: string;
+  domain: OnChainDomain;
+  provider: OnChainProvider;
+  reason: string;
+  title: string;
+};
+
+export type OnChainToolResult = {
+  commandId: string;
+  data?: unknown;
+  domain: OnChainDomain;
+  error?: string;
+  latencyMs: number;
+  provider: OnChainProvider;
+  sourceUrl?: string;
+  status: "failed" | "skipped" | "success";
+  summary: string;
+  title: string;
+};
+
+export type OnChainToolFinalPayload = {
+  answer: string;
+  bullets: string[];
+  caveat: string;
+  generatedAt: string;
+  plan: OnChainPlanSummary;
+  recommendation: string;
+  title: string;
+  tools: OnChainToolResult[];
 };
 
 export type StoredChatMessage = {
   id: string;
   role: "assistant" | "user";
   content: string;
+  mode?: ChatMode;
+  model?: string;
   result?: DiscoverPayload;
   directAnswer?: DirectChatPayload;
+  onChain?: OnChainToolFinalPayload;
   progressEvents?: WorkflowProgressEvent[];
   error?: string;
   stopped?: boolean;
@@ -430,6 +517,60 @@ export type AutomationStats = {
   completedThisWeek: number;
 };
 
+export type MemoryStatus = "active" | "disabled";
+export type MemoryCategory =
+  | "Preference"
+  | "Project"
+  | "Workflow"
+  | "Personal"
+  | "API";
+
+export type MemoryItem = {
+  id: string;
+  memory: string;
+  category: MemoryCategory;
+  scope: string;
+  status: MemoryStatus;
+  source: string;
+  lastUsed: string;
+  updatedAt: string;
+  confidence: number;
+};
+
+export type MemoryStats = {
+  active: number;
+  disabled: number;
+  projectScoped: number;
+  total: number;
+};
+
+export type MemorySettings = {
+  autoDisableLowConfidence: boolean;
+  captureEnabled: boolean;
+  crossChatRecall: boolean;
+  projectScopedRecall: boolean;
+  retentionDays: number;
+  updatedAt: string;
+};
+
+export type MemoryDashboard = {
+  configured: true;
+  memories: MemoryItem[];
+  settings: MemorySettings;
+  stats: MemoryStats;
+};
+
+export type MemorySettingsInput = Partial<
+  Pick<
+    MemorySettings,
+    | "autoDisableLowConfidence"
+    | "captureEnabled"
+    | "crossChatRecall"
+    | "projectScopedRecall"
+    | "retentionDays"
+  >
+>;
+
 export type AutomationDashboard = {
   configured: true;
   notifications: AutomationInAppNotification[];
@@ -478,11 +619,16 @@ export type ChatStreamInput = {
   model?: string;
   researchTrend?: boolean;
   sessionId?: string;
+  toolMode?: ChatMode;
   wallet?: WalletAuth;
   signal?: AbortSignal;
   onDirectDelta?: (delta: string) => void;
   onDirect?: (payload: DirectChatPayload) => void;
   onMode?: (mode: string) => void;
+  onToolCall?: (event: OnChainToolCallEvent) => void;
+  onToolFinal?: (payload: OnChainToolFinalPayload) => void;
+  onToolPlan?: (plan: OnChainPlanSummary) => void;
+  onToolResult?: (event: OnChainToolResult) => void;
   onProgress?: (event: WorkflowProgressEvent) => void;
   onResult?: (payload: DiscoverPayload) => void;
   onError?: (message: string) => void;
@@ -500,6 +646,22 @@ export type ChatStreamChunk =
   | {
       type: "mode";
       mode?: string;
+    }
+  | {
+      type: "tool_plan";
+      plan?: OnChainPlanSummary;
+    }
+  | {
+      type: "tool_call";
+      event?: OnChainToolCallEvent;
+    }
+  | {
+      type: "tool_result";
+      event?: OnChainToolResult;
+    }
+  | {
+      type: "tool_final";
+      payload?: OnChainToolFinalPayload;
     }
   | {
       type: "progress";
@@ -780,6 +942,22 @@ type AutomationResponse<T> = T & {
   error?: string;
 };
 
+type MemoryResponse =
+  | {
+      configured: false;
+      error?: string;
+    }
+  | {
+      configured: true;
+      deleted?: boolean;
+      deletedIds?: string[];
+      error?: string;
+      memories?: MemoryItem[];
+      memory?: MemoryItem;
+      settings?: MemorySettings;
+      stats?: MemoryStats;
+    };
+
 const DEFAULT_BACKEND_URL = "http://localhost:3001";
 
 export const CHAT_SESSIONS_UPDATED_EVENT = "langclaw-chat-sessions-updated";
@@ -855,15 +1033,17 @@ export async function streamDiscover(input: DiscoverStreamInput) {
 }
 
 export async function streamChat(input: ChatStreamInput) {
+  const toolMode = input.toolMode ?? (input.researchTrend ? "research" : "chat");
   const response = await postJson(
     "/api/chat/stream",
     {
       message: input.message,
       messages: input.messages ?? [],
       model: input.model,
-      researchTrend: Boolean(input.researchTrend),
+      researchTrend: toolMode === "research",
       sessionId: input.sessionId,
-      useAgent: Boolean(input.researchTrend),
+      toolMode,
+      useAgent: toolMode === "research",
       wallet: input.wallet,
     },
     input.signal,
@@ -884,6 +1064,34 @@ export async function streamChat(input: ChatStreamInput) {
 
     if (chunk.type === "mode") {
       input.onMode?.(typeof chunk.mode === "string" ? chunk.mode : "");
+      return;
+    }
+
+    if (chunk.type === "tool_plan") {
+      if (chunk.plan) {
+        input.onToolPlan?.(chunk.plan);
+      }
+      return;
+    }
+
+    if (chunk.type === "tool_call") {
+      if (chunk.event) {
+        input.onToolCall?.(chunk.event);
+      }
+      return;
+    }
+
+    if (chunk.type === "tool_result") {
+      if (chunk.event) {
+        input.onToolResult?.(chunk.event);
+      }
+      return;
+    }
+
+    if (chunk.type === "tool_final") {
+      if (chunk.payload) {
+        input.onToolFinal?.(chunk.payload);
+      }
       return;
     }
 
@@ -946,6 +1154,25 @@ export async function deleteChatSession(wallet: WalletAuth, sessionId: string) {
   return Boolean(response.deleted);
 }
 
+export async function updateChatSessionMetadata(
+  wallet: WalletAuth,
+  input: {
+    pinned?: boolean;
+    sessionId: string;
+    title?: string;
+  },
+) {
+  const response = await chatSessionsRequest({
+    action: "update",
+    pinned: input.pinned,
+    sessionId: input.sessionId,
+    title: input.title,
+    wallet,
+  });
+
+  return response.session ?? null;
+}
+
 export async function listApiKeys(wallet: WalletAuth) {
   const response = await apiKeysRequest({ action: "list", wallet });
 
@@ -974,6 +1201,96 @@ export async function revokeApiKey(wallet: WalletAuth, keyId: string) {
   }
 
   return response.key;
+}
+
+export async function getMemoryDashboard(wallet: WalletAuth) {
+  const response = await memoryRequest({ action: "list", wallet });
+
+  return {
+    configured: true,
+    memories: response.memories ?? [],
+    settings: requireMemorySettings(response.settings),
+    stats: response.stats ?? buildMemoryStats(response.memories ?? []),
+  } satisfies MemoryDashboard;
+}
+
+export async function setMemoryStatus(
+  wallet: WalletAuth,
+  memoryId: string,
+  status: MemoryStatus,
+) {
+  const response = await memoryRequest({
+    action: "status",
+    memoryId,
+    status,
+    wallet,
+  });
+
+  if (!response.memory) {
+    throw new SignalGraphApiError("Memory was not returned.", 500);
+  }
+
+  return response.memory;
+}
+
+export async function setManyMemoryStatuses(
+  wallet: WalletAuth,
+  memoryIds: string[],
+  status: MemoryStatus,
+) {
+  const response = await memoryRequest({
+    action: "bulk-status",
+    memoryIds,
+    status,
+    wallet,
+  });
+
+  return response.memories ?? [];
+}
+
+export async function deleteMemoryRecord(
+  wallet: WalletAuth,
+  memoryId: string,
+) {
+  const response = await memoryRequest({
+    action: "delete",
+    memoryId,
+    wallet,
+  });
+
+  return response.deletedIds ?? (response.deleted ? [memoryId] : []);
+}
+
+export async function deleteManyMemoryRecords(
+  wallet: WalletAuth,
+  memoryIds: string[],
+) {
+  const response = await memoryRequest({
+    action: "bulk-delete",
+    memoryIds,
+    wallet,
+  });
+
+  return response.deletedIds ?? [];
+}
+
+export async function getMemorySettings(wallet: WalletAuth) {
+  const response = await memorySettingsRequest({ action: "get", wallet });
+
+  return requireMemorySettings(response.settings);
+}
+
+export async function updateMemorySettings(
+  wallet: WalletAuth,
+  settings: MemorySettingsInput,
+) {
+  const response = await memorySettingsRequest({
+    action: "update",
+    settings,
+    wallet,
+  });
+
+  return requireMemorySettings(response.settings);
 }
 
 export async function getAutomationDashboard(wallet: WalletAuth) {
@@ -1457,10 +1774,12 @@ export function dispatchChatSessionsUpdated() {
 }
 
 async function chatSessionsRequest(body: {
-  action: "delete" | "get" | "list" | "upsert";
+  action: "delete" | "get" | "list" | "update" | "upsert";
+  pinned?: boolean;
   wallet: WalletAuth;
   sessionId?: string;
   session?: ChatSession;
+  title?: string;
 }) {
   const response = await postJson("/api/chat/sessions", body);
   const payload = await readJsonResponse<ChatSessionsResponse>(response);
@@ -1502,6 +1821,52 @@ async function apiKeysRequest(body: {
   return payload;
 }
 
+async function memoryRequest(body: {
+  action: "bulk-delete" | "bulk-status" | "delete" | "list" | "status";
+  memoryId?: string;
+  memoryIds?: string[];
+  status?: MemoryStatus;
+  wallet: WalletAuth;
+}) {
+  const response = await postJson("/api/memory", body);
+  const payload = await readJsonResponse<MemoryResponse>(response);
+
+  if (!payload.configured) {
+    throw new SignalGraphApiError(
+      payload.error || "Memory storage is not configured.",
+      503,
+    );
+  }
+
+  if (payload.error) {
+    throw new SignalGraphApiError(payload.error, response.status);
+  }
+
+  return payload;
+}
+
+async function memorySettingsRequest(body: {
+  action: "get" | "update";
+  settings?: MemorySettingsInput;
+  wallet: WalletAuth;
+}) {
+  const response = await postJson("/api/memory/settings", body);
+  const payload = await readJsonResponse<MemoryResponse>(response);
+
+  if (!payload.configured) {
+    throw new SignalGraphApiError(
+      payload.error || "Memory settings are not configured.",
+      503,
+    );
+  }
+
+  if (payload.error) {
+    throw new SignalGraphApiError(payload.error, response.status);
+  }
+
+  return payload;
+}
+
 async function readAutomationResponse<T>(response: Response) {
   const payload = await readJsonResponse<AutomationResponse<T>>(response);
 
@@ -1510,6 +1875,23 @@ async function readAutomationResponse<T>(response: Response) {
   }
 
   return payload as T;
+}
+
+function requireMemorySettings(settings?: MemorySettings) {
+  if (!settings) {
+    throw new SignalGraphApiError("Memory settings were not returned.", 500);
+  }
+
+  return settings;
+}
+
+function buildMemoryStats(memories: MemoryItem[]): MemoryStats {
+  return {
+    active: memories.filter((memory) => memory.status === "active").length,
+    disabled: memories.filter((memory) => memory.status === "disabled").length,
+    projectScoped: memories.filter((memory) => memory.scope !== "Global").length,
+    total: memories.length,
+  };
 }
 
 export function readFriendlyError(error: unknown, fallback: string) {

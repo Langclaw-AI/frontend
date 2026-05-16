@@ -44,7 +44,10 @@ export const Suggestion = ({
 
   return (
     <Button
-      className={cn("cursor-pointer rounded-full px-4", className)}
+      className={cn(
+        "max-w-[calc(100vw-4rem)] shrink-0 cursor-pointer truncate rounded-full px-4 sm:max-w-none",
+        className,
+      )}
       onClick={handleClick}
       size={size}
       type="button"

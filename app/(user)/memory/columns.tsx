@@ -24,8 +24,9 @@ import { cn } from "@/lib/utils";
 import type { MemoryCategory, MemoryItem, MemoryStatus } from "./types";
 
 type MemoryColumnActions = {
-  onDelete: (id: string) => void;
-  onStatusToggle: (id: string) => void;
+  disabled?: boolean;
+  onDelete: (memory: MemoryItem) => void | Promise<void>;
+  onStatusToggle: (memory: MemoryItem) => void | Promise<void>;
 };
 
 const categoryStyles: Record<MemoryCategory, string> = {
@@ -140,6 +141,7 @@ function DataTableColumnHeader<TData, TValue>({
 }
 
 export function getMemoryColumns({
+  disabled,
   onDelete,
   onStatusToggle,
 }: MemoryColumnActions): ColumnDef<MemoryItem>[] {
@@ -279,14 +281,28 @@ export function getMemoryColumns({
                   <Copy />
                   Copy memory ID
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onStatusToggle(memory.id)}>
+                <DropdownMenuItem
+                  disabled={disabled}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    if (!disabled) {
+                      void onStatusToggle(memory);
+                    }
+                  }}
+                >
                   {memory.status === "active" ? <Ban /> : <RotateCcw />}
                   {statusLabel}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  disabled={disabled}
                   variant="destructive"
-                  onSelect={() => onDelete(memory.id)}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    if (!disabled) {
+                      void onDelete(memory);
+                    }
+                  }}
                 >
                   <Trash2 />
                   Delete memory

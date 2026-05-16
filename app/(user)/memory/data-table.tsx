@@ -81,8 +81,24 @@ const columnLabels: Record<string, string> = {
   confidence: "Confidence",
 };
 
-export function MemoryDataTable({ data }: { data: MemoryItem[] }) {
-  const [rows, setRows] = React.useState<MemoryItem[]>(data);
+export function MemoryDataTable({
+  data,
+  disabled,
+  onDelete,
+  onDeleteMany,
+  onStatusChange,
+  onStatusChangeMany,
+}: {
+  data: MemoryItem[];
+  disabled?: boolean;
+  onDelete: (memory: MemoryItem) => Promise<void>;
+  onDeleteMany: (memoryIds: string[]) => Promise<void>;
+  onStatusChange: (memory: MemoryItem, status: MemoryStatus) => Promise<void>;
+  onStatusChangeMany: (
+    memoryIds: string[],
+    status: MemoryStatus,
+  ) => Promise<void>;
+}) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] =
     React.useState<ColumnFiltersState>([]);
@@ -97,34 +113,26 @@ export function MemoryDataTable({ data }: { data: MemoryItem[] }) {
   const columns = React.useMemo(
     () =>
       getMemoryColumns({
-        onDelete: (id) => {
-          setRows((currentRows) =>
-            currentRows.filter((memory) => memory.id !== id)
+        disabled,
+        onDelete: async (memory) => {
+          await onDelete(memory);
+          setRowSelection({});
+        },
+        onStatusToggle: async (memory) => {
+          await onStatusChange(
+            memory,
+            memory.status === "active" ? "disabled" : "active",
           );
           setRowSelection({});
         },
-        onStatusToggle: (id) => {
-          setRows((currentRows) =>
-            currentRows.map((memory) =>
-              memory.id === id
-                ? {
-                    ...memory,
-                    status:
-                      memory.status === "active" ? "disabled" : "active",
-                    updatedAt: new Date().toISOString().slice(0, 10),
-                  }
-                : memory
-            )
-          );
-        },
       }),
-    []
+    [disabled, onDelete, onStatusChange]
   );
 
   // TanStack Table intentionally exposes mutable table APIs for interactive grids.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: rows,
+    data,
     columns,
     state: {
       sorting,
@@ -159,26 +167,17 @@ export function MemoryDataTable({ data }: { data: MemoryItem[] }) {
     (table.getColumn("category")?.getFilterValue() as string | undefined) ??
     "all";
 
-  function deleteSelectedRows() {
+  async function deleteSelectedRows() {
     const selectedIds = new Set(selectedRows.map((row) => row.original.id));
 
-    setRows((currentRows) =>
-      currentRows.filter((memory) => !selectedIds.has(memory.id))
-    );
+    await onDeleteMany(Array.from(selectedIds));
     setRowSelection({});
   }
 
-  function disableSelectedRows() {
+  async function disableSelectedRows() {
     const selectedIds = new Set(selectedRows.map((row) => row.original.id));
-    const today = new Date().toISOString().slice(0, 10);
 
-    setRows((currentRows) =>
-      currentRows.map((memory) =>
-        selectedIds.has(memory.id)
-          ? { ...memory, status: "disabled", updatedAt: today }
-          : memory
-      )
-    );
+    await onStatusChangeMany(Array.from(selectedIds), "disabled");
     setRowSelection({});
   }
 
@@ -275,14 +274,20 @@ export function MemoryDataTable({ data }: { data: MemoryItem[] }) {
 
           {selectedCount > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={disableSelectedRows}>
+              <Button
+                disabled={disabled}
+                variant="outline"
+                size="sm"
+                onClick={() => void disableSelectedRows()}
+              >
                 <Ban />
                 Disable selected
               </Button>
               <Button
+                disabled={disabled}
                 variant="destructive"
                 size="sm"
-                onClick={deleteSelectedRows}
+                onClick={() => void deleteSelectedRows()}
               >
                 <Trash2 />
                 Delete selected

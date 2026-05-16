@@ -12,6 +12,7 @@ import {
   PromptInputTools,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import { SpeechInput } from "@/components/ai-elements/speech-input";
 import {
@@ -25,9 +26,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CpuIcon, GlobeIcon } from "lucide-react";
+import {
+  ActivityIcon,
+  CpuIcon,
+  MessageSquareIcon,
+  SearchIcon,
+} from "lucide-react";
 import type { Experimental_TranscriptionResult } from "ai";
-import { useCallback, useEffect, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SparklesText } from "./ui/sparkles-text";
 import { useRouter } from "next/navigation";
@@ -36,6 +42,7 @@ import { createChatSession, savePendingPrompt } from "@/lib/chat-utils";
 import {
   dispatchChatSessionsUpdated,
   readFriendlyError,
+  type ChatMode,
   upsertChatSession,
 } from "@/lib/signalgraph-api";
 import { useWalletSession } from "@/hooks/use-wallet-session";
@@ -59,7 +66,7 @@ const ChatInputSuggestions = () => {
   const { textInput } = usePromptInputController();
 
   return (
-    <Suggestions className="max-w-2xl justify-center">
+    <Suggestions className="justify-start sm:justify-center">
       {CHAT_INPUT_SUGGESTIONS.map((suggestion) => (
         <Suggestion
           key={suggestion}
@@ -128,7 +135,7 @@ const ChatInput = () => {
   const { chatModels, error: modelsError, isLoading: isLoadingModels } =
     useRouterModels();
   const [selectedModel, setSelectedModel] = useState(DEFAULT_CHAT_MODEL_ID);
-  const [researchTrend, setResearchTrend] = useState(false);
+  const [toolMode, setToolMode] = useState<ChatMode>("chat");
   const [error, setError] = useState("");
   const [speechSegments, setSpeechSegments] = useState<TranscriptionSegments>(
     [],
@@ -194,15 +201,21 @@ const ChatInput = () => {
 
         savePendingPrompt(session.id, {
           model: selectedModel,
-          researchTrend,
+          researchTrend: toolMode === "research",
           text,
+          toolMode,
         });
 
         await upsertChatSession(wallet, session);
         dispatchChatSessionsUpdated();
         setStatus("streaming");
         toast.success("Chat session created", {
-          description: researchTrend ? "Search mode is ready." : selectedModel,
+          description:
+            toolMode === "research"
+              ? "Search mode is ready."
+              : toolMode === "onchain"
+                ? "On-chain mode is ready."
+                : selectedModel,
         });
 
         setTimeout(() => {
@@ -224,42 +237,44 @@ const ChatInput = () => {
       getWalletAuth,
       isConnected,
       openWalletModal,
-      researchTrend,
       router,
       selectedModel,
+      toolMode,
     ],
   );
 
   return (
-    <div className="mx-auto flex size-full h-full flex-col items-center justify-center gap-8 px-4">
-      <div className="flex flex-wrap items-end justify-center gap-2 text-center font-medium text-3xl md:text-4xl">
+    <div className="mx-auto flex size-full h-full min-w-0 flex-col items-center justify-center gap-8 overflow-hidden">
+      <div className="flex w-full max-w-2xl flex-col items-center justify-center gap-1 text-center font-medium text-3xl sm:flex-row sm:flex-wrap sm:items-end sm:gap-2 md:text-4xl">
         <span>Welcome to</span>
-        <SparklesText className="text-4xl md:text-5xl">Langclaw,</SparklesText>
+        <SparklesText className="max-w-full text-4xl md:text-5xl">
+          Langclaw,
+        </SparklesText>
         <span>how can I help?</span>
       </div>
       <PromptInputProvider>
-        <PromptInput className="w-full max-w-2xl" onSubmit={handleSubmit}>
+        <PromptInput
+          className="w-full max-w-2xl overflow-hidden"
+          onSubmit={handleSubmit}
+        >
           <SpeechTranscriptionPreview segments={speechSegments} />
           <PromptInputBody>
             <PromptInputTextarea />
           </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools>
+          <PromptInputFooter className="flex-wrap items-end gap-2">
+            <PromptInputTools className="flex-1 flex-wrap gap-1.5">
               <ChatInputSpeechButton onTranscript={handleSpeechTranscript} />
-              <PromptInputButton
-                onClick={() => setResearchTrend((value) => !value)}
-                variant={researchTrend ? "default" : "ghost"}
-              >
-                <GlobeIcon size={16} />
-                <span>Search</span>
-              </PromptInputButton>
+              <ChatModeControl onChange={setToolMode} value={toolMode} />
               <ModelSelect
                 models={chatModels}
                 onChange={setSelectedModel}
                 value={selectedModel}
               />
             </PromptInputTools>
-            <PromptInputSubmit disabled={isSigning} status={status} />
+            <PromptInputSubmit
+              disabled={isSigning || !isConnected}
+              status={status}
+            />
           </PromptInputFooter>
         </PromptInput>
         <ChatInputSuggestions />
@@ -278,6 +293,45 @@ function showError(setError: (message: string) => void, message: string) {
   toast.error(message);
 }
 
+function ChatModeControl({
+  onChange,
+  value,
+}: {
+  onChange: (value: ChatMode) => void;
+  value: ChatMode;
+}) {
+  const modes: Array<{
+    icon: ComponentType<{ className?: string; size?: number }>;
+    label: string;
+    value: ChatMode;
+  }> = [
+      { icon: MessageSquareIcon, label: "Chat", value: "chat" },
+      { icon: SearchIcon, label: "Search", value: "research" },
+      { icon: ActivityIcon, label: "On-chain", value: "onchain" },
+    ];
+
+  return (
+    <ButtonGroup className="max-w-full shrink-0">
+      {modes.map((mode) => {
+        const Icon = mode.icon;
+
+        return (
+          <PromptInputButton
+            aria-pressed={value === mode.value}
+            key={mode.value}
+            onClick={() => onChange(mode.value)}
+            type="button"
+            variant={value === mode.value ? "default" : "ghost"}
+          >
+            <Icon className="size-4" />
+            <span>{mode.label}</span>
+          </PromptInputButton>
+        );
+      })}
+    </ButtonGroup>
+  );
+}
+
 function ModelSelect({
   models,
   onChange,
@@ -291,7 +345,7 @@ function ModelSelect({
     <Select onValueChange={onChange} value={value}>
       <SelectTrigger
         aria-label="Chat model"
-        className="h-8 w-[min(15rem,42vw)] text-xs"
+        className="h-8 min-w-0 flex-1 basis-40 text-xs sm:w-[min(15rem,42vw)] sm:flex-none"
         size="sm"
       >
         <CpuIcon className="size-4 text-muted-foreground" />

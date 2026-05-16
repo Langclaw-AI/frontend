@@ -1,4 +1,5 @@
 import {
+  buildOnChainAnswerContent,
   buildDiscoverAnswerContent,
   getUIMessageText,
   type LangclawMessageMetadata,
@@ -8,9 +9,14 @@ import {
   getSignalGraphApiUrl,
   readFriendlyError,
   SignalGraphApiError,
+  type ChatMode,
   type ChatStreamChunk,
   type DirectChatPayload,
   type DiscoverPayload,
+  type OnChainPlanSummary,
+  type OnChainToolCallEvent,
+  type OnChainToolFinalPayload,
+  type OnChainToolResult,
   type StoredChatMessage,
   type WalletAuth,
   type WorkflowProgressEvent,
@@ -21,6 +27,7 @@ type ChatRequestBody = {
   model?: string;
   researchTrend?: boolean;
   sessionId?: string;
+  toolMode?: ChatMode;
   wallet?: WalletAuth;
 };
 
@@ -66,7 +73,11 @@ async function pipeBackendStreamToUIMessageChunks({
   let textStarted = false;
   let text = "";
   let reasoningStarted = false;
-  let metadata: LangclawMessageMetadata = {};
+  const toolMode = body.toolMode ?? (body.researchTrend ? "research" : "chat");
+  let metadata: LangclawMessageMetadata = {
+    mode: toolMode,
+    model: body.model,
+  };
   let progressEvents: WorkflowProgressEvent[] = [];
 
   const closeReasoningPart = () => {
@@ -161,20 +172,17 @@ async function pipeBackendStreamToUIMessageChunks({
       );
     }
 
-    appendReasoning(
-      body.researchTrend
-        ? "Preparing SignalGraph research workflow.\n"
-        : `Preparing direct answer${body.model ? ` with ${body.model}` : ""}.\n`
-    );
+    updateMetadata(metadata);
 
     const response = await fetch(getSignalGraphApiUrl("/api/chat/stream"), {
       body: JSON.stringify({
         message,
         messages: toBackendMessages(messages),
         model: body.model,
-        researchTrend: Boolean(body.researchTrend),
+        researchTrend: toolMode === "research",
         sessionId: body.sessionId ?? chatId,
-        useAgent: Boolean(body.researchTrend),
+        toolMode,
+        useAgent: toolMode === "research",
         wallet: body.wallet,
       }),
       headers: {
@@ -205,13 +213,51 @@ async function pipeBackendStreamToUIMessageChunks({
           appendText(payload.answer);
         }
 
-        updateMetadata({ directAnswer: payload });
+        updateMetadata({
+          directAnswer: payload,
+          mode: "chat",
+          model: payload.usedModel ?? payload.model ?? body.model,
+        });
         return;
       }
 
       if (chunk.type === "mode") {
         const mode = typeof chunk.mode === "string" ? chunk.mode : "chat";
         appendReasoning(`Route selected: ${mode}.\n`);
+        return;
+      }
+
+      if (chunk.type === "tool_plan") {
+        const plan = readOnChainPlan(chunk.plan);
+        updateMetadata({ mode: "onchain" });
+        appendReasoning(formatOnChainPlanReasoning(plan));
+        return;
+      }
+
+      if (chunk.type === "tool_call") {
+        const event = readOnChainToolCall(chunk.event);
+        updateMetadata({ mode: "onchain" });
+        appendReasoning(
+          `${event.provider}: running ${event.title} (${event.domain}).\n`
+        );
+        return;
+      }
+
+      if (chunk.type === "tool_result") {
+        const event = readOnChainToolResult(chunk.event);
+        updateMetadata({ mode: "onchain" });
+        appendReasoning(
+          `${event.provider}: ${event.title} ${event.status} - ${event.summary}\n`
+        );
+        return;
+      }
+
+      if (chunk.type === "tool_final") {
+        const payload = readOnChainPayload(chunk.payload);
+        appendReasoning("On-chain tools complete. Composing final answer.\n");
+        closeReasoningPart();
+        appendText(buildOnChainAnswerContent(payload));
+        updateMetadata({ mode: "onchain", onChain: payload });
         return;
       }
 
@@ -231,7 +277,15 @@ async function pipeBackendStreamToUIMessageChunks({
         appendReasoning("Research complete. Composing final answer.\n");
         closeReasoningPart();
         appendText(buildDiscoverAnswerContent(payload));
-        updateMetadata({ progressEvents, result: payload });
+        updateMetadata({
+          mode: "research",
+          model:
+            payload.finalAnswerMeta?.usedModel ??
+            payload.finalAnswerMeta?.model ??
+            body.model,
+          progressEvents,
+          result: payload,
+        });
         return;
       }
 
@@ -273,6 +327,7 @@ function readChatRequestBody(body: object | undefined): ChatRequestBody {
     researchTrend: payload.researchTrend === true,
     sessionId:
       typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+    toolMode: readChatMode(payload.toolMode, payload.researchTrend),
     wallet: readWalletAuth(payload.wallet),
   };
 }
@@ -397,9 +452,103 @@ function readDirectPayload(value: unknown): DirectChatPayload {
         ? payload.teeVerified
         : undefined,
     title: typeof payload.title === "string" ? payload.title : undefined,
+    usage:
+      payload.usage && typeof payload.usage === "object"
+        ? payload.usage
+        : undefined,
     usedModel:
       typeof payload.usedModel === "string" ? payload.usedModel : undefined,
   };
+}
+
+function readOnChainPlan(value: unknown): OnChainPlanSummary {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed on-chain plan.");
+  }
+
+  const plan = value as Partial<OnChainPlanSummary>;
+
+  if (
+    typeof plan.intent !== "string" ||
+    typeof plan.chain !== "string" ||
+    typeof plan.chainId !== "number" ||
+    !Array.isArray(plan.commands)
+  ) {
+    throw new Error("Malformed on-chain plan.");
+  }
+
+  return plan as OnChainPlanSummary;
+}
+
+function readOnChainToolCall(value: unknown): OnChainToolCallEvent {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed on-chain tool call.");
+  }
+
+  const event = value as Partial<OnChainToolCallEvent>;
+
+  if (
+    typeof event.commandId !== "string" ||
+    typeof event.domain !== "string" ||
+    typeof event.provider !== "string" ||
+    typeof event.reason !== "string" ||
+    typeof event.title !== "string"
+  ) {
+    throw new Error("Malformed on-chain tool call.");
+  }
+
+  return event as OnChainToolCallEvent;
+}
+
+function readOnChainToolResult(value: unknown): OnChainToolResult {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed on-chain tool result.");
+  }
+
+  const event = value as Partial<OnChainToolResult>;
+
+  if (
+    typeof event.commandId !== "string" ||
+    typeof event.domain !== "string" ||
+    typeof event.provider !== "string" ||
+    typeof event.summary !== "string" ||
+    typeof event.title !== "string" ||
+    !(
+      event.status === "failed" ||
+      event.status === "skipped" ||
+      event.status === "success"
+    )
+  ) {
+    throw new Error("Malformed on-chain tool result.");
+  }
+
+  return {
+    ...event,
+    latencyMs: typeof event.latencyMs === "number" ? event.latencyMs : 0,
+  } as OnChainToolResult;
+}
+
+function readOnChainPayload(value: unknown): OnChainToolFinalPayload {
+  if (!value || typeof value !== "object") {
+    throw new Error("Malformed on-chain final payload.");
+  }
+
+  const payload = value as Partial<OnChainToolFinalPayload>;
+
+  if (
+    typeof payload.answer !== "string" ||
+    !Array.isArray(payload.bullets) ||
+    typeof payload.caveat !== "string" ||
+    typeof payload.generatedAt !== "string" ||
+    !payload.plan ||
+    typeof payload.recommendation !== "string" ||
+    typeof payload.title !== "string" ||
+    !Array.isArray(payload.tools)
+  ) {
+    throw new Error("Malformed on-chain final payload.");
+  }
+
+  return payload as OnChainToolFinalPayload;
 }
 
 function readProgressEvent(value: unknown): WorkflowProgressEvent {
@@ -461,6 +610,21 @@ function readWalletAuth(value: unknown): WalletAuth | undefined {
   };
 }
 
+function readChatMode(
+  toolMode: unknown,
+  researchTrend: unknown
+): ChatMode | undefined {
+  if (
+    toolMode === "chat" ||
+    toolMode === "onchain" ||
+    toolMode === "research"
+  ) {
+    return toolMode;
+  }
+
+  return researchTrend === true ? "research" : undefined;
+}
+
 function readDiscoverPayload(value: unknown): DiscoverPayload {
   if (!value || typeof value !== "object") {
     throw new Error("Malformed discovery result payload.");
@@ -498,4 +662,12 @@ function formatProgressReasoning(event: WorkflowProgressEvent) {
   const status = event.status ? ` [${event.status}]` : "";
 
   return `${agent}${status}: ${summary}\n`;
+}
+
+function formatOnChainPlanReasoning(plan: OnChainPlanSummary) {
+  const commands = plan.commands
+    .map((command) => `${command.provider}:${command.commandId}`)
+    .join(", ");
+
+  return `On-chain plan: ${plan.intent} on ${plan.chain}. Tools: ${commands || "none"}.\n`;
 }

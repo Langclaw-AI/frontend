@@ -1,7 +1,9 @@
 import type {
+  ChatMode,
   ChatSession,
   DirectChatPayload,
   DiscoverPayload,
+  OnChainToolFinalPayload,
   StoredChatMessage,
   WorkflowProgressEvent,
 } from "@/lib/signalgraph-api";
@@ -10,6 +12,9 @@ import type { UIMessage } from "ai";
 export type LangclawMessageMetadata = {
   directAnswer?: DirectChatPayload;
   error?: string;
+  mode?: ChatMode;
+  model?: string;
+  onChain?: OnChainToolFinalPayload;
   progressEvents?: WorkflowProgressEvent[];
   result?: DiscoverPayload;
   stopped?: boolean;
@@ -59,6 +64,7 @@ export type PendingPrompt = {
   text: string;
   model?: string;
   researchTrend: boolean;
+  toolMode?: ChatMode;
 };
 
 const PENDING_PROMPT_STORAGE_PREFIX = "langclaw.pendingPrompt.v1";
@@ -122,6 +128,9 @@ export function storedMessageToUIMessage(
     metadata: {
       directAnswer: message.directAnswer,
       error: message.error,
+      mode: message.mode,
+      model: message.model,
+      onChain: message.onChain,
       progressEvents: message.progressEvents,
       result: message.result,
       stopped: message.stopped,
@@ -151,6 +160,9 @@ export function uiMessagesToStoredMessages(
       directAnswer: message.metadata?.directAnswer,
       error: message.metadata?.error,
       id: message.id,
+      mode: message.metadata?.mode,
+      model: message.metadata?.model,
+      onChain: message.metadata?.onChain,
       progressEvents: message.metadata?.progressEvents,
       result: message.metadata?.result,
       role: message.role,
@@ -210,16 +222,52 @@ export function buildDiscoverAnswerContent(payload: DiscoverPayload) {
   const lines = [
     `## ${finalAnswer.title}`,
     "",
-    finalAnswer.answer,
+    normalizeMarkdownText(finalAnswer.answer),
+    ...(finalAnswer.bullets.length
+      ? [
+          "",
+          "### Key signals",
+          "",
+          ...finalAnswer.bullets.map((bullet) => `- ${normalizeInlineText(bullet)}`),
+        ]
+      : []),
     "",
-    ...finalAnswer.bullets.map((bullet) => `- ${bullet}`),
+    "### Recommendation",
     "",
-    `**Recommendation:** ${finalAnswer.recommendation}`,
+    normalizeMarkdownText(finalAnswer.recommendation),
     "",
-    `**Caveat:** ${finalAnswer.caveat}`,
+    "### Caveat",
+    "",
+    normalizeMarkdownText(finalAnswer.caveat),
   ];
 
-  return lines.filter(Boolean).join("\n");
+  return joinMarkdownLines(lines);
+}
+
+export function buildOnChainAnswerContent(payload: OnChainToolFinalPayload) {
+  const lines = [
+    `## ${payload.title}`,
+    "",
+    normalizeMarkdownText(payload.answer),
+    ...(payload.bullets.length
+      ? [
+          "",
+          "### Tool-backed signals",
+          "",
+          ...payload.bullets.map((bullet) => `- ${normalizeInlineText(bullet)}`),
+        ]
+      : []),
+    "",
+    "### Recommendation",
+    "",
+    normalizeMarkdownText(payload.recommendation),
+    "",
+    "### Caveat",
+    "",
+    normalizeMarkdownText(payload.caveat),
+  ];
+
+  return joinMarkdownLines(lines);
 }
 
 export function appendProgressSummary(events: WorkflowProgressEvent[]) {
@@ -260,17 +308,24 @@ export function consumePendingPrompt(sessionId: string) {
   try {
     const parsed = JSON.parse(raw) as Partial<PendingPrompt>;
 
-    if (
-      typeof parsed.text !== "string" ||
-      typeof parsed.researchTrend !== "boolean"
-    ) {
+    if (typeof parsed.text !== "string") {
       return null;
     }
 
+    const toolMode =
+      parsed.toolMode === "chat" ||
+      parsed.toolMode === "onchain" ||
+      parsed.toolMode === "research"
+        ? parsed.toolMode
+        : parsed.researchTrend === true
+          ? "research"
+          : "chat";
+
     return {
       model: typeof parsed.model === "string" ? parsed.model : undefined,
-      researchTrend: parsed.researchTrend,
+      researchTrend: toolMode === "research",
       text: parsed.text,
+      toolMode,
     };
   } catch {
     return null;
@@ -287,4 +342,20 @@ function createId() {
   }
 
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function joinMarkdownLines(lines: string[]) {
+  return lines
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizeMarkdownText(value: string) {
+  return value.trim();
+}
+
+function normalizeInlineText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }

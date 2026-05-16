@@ -28,8 +28,9 @@ import {
   LogOut,
   MessagesSquare,
   MoreHorizontal,
-  PinIcon,
-  PinOffIcon,
+  Pencil,
+  Pin,
+  PinOff,
   Settings,
   Trash2,
   User2,
@@ -51,6 +52,16 @@ import { useBalance, useChains, useConnection, useDisconnect } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Button } from "./ui/button";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -62,10 +73,9 @@ import {
   checkBackendHealth,
   deleteChatSession,
   dispatchChatSessionsUpdated,
-  getChatSession,
   listChatSessions,
   type ChatSession,
-  upsertChatSession,
+  updateChatSessionMetadata,
 } from "@/lib/signalgraph-api";
 import {
   useWalletSession,
@@ -79,6 +89,9 @@ export function AppSidebar() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [sessionsError, setSessionsError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ChatSession | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
   const { data: balanceUser } = useBalance({
     address: address,
   });
@@ -154,14 +167,96 @@ export function AppSidebar() {
     };
   }, [refreshSessions]);
 
-  const handleDeleteSession = useCallback(
-    async (sessionId: string) => {
+  const handleTogglePinned = useCallback(
+    async (session: ChatSession) => {
       try {
         const wallet = await getWalletAuth();
-        await deleteChatSession(wallet, sessionId);
+        const updated = await updateChatSessionMetadata(wallet, {
+          pinned: !session.pinned,
+          sessionId: session.id,
+        });
         setSessions((current) =>
-          current.filter((session) => session.id !== sessionId),
+          current.map((item) =>
+            item.id === session.id
+              ? {
+                ...item,
+                ...(updated ?? {}),
+                messages: item.messages,
+                pinned: updated?.pinned ?? !session.pinned,
+              }
+              : item,
+          ),
         );
+        dispatchChatSessionsUpdated();
+        toast.success(session.pinned ? "Chat unpinned" : "Chat pinned");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Unable to update chat.",
+        );
+      }
+    },
+    [getWalletAuth],
+  );
+
+  const openRenameDialog = useCallback((session: ChatSession) => {
+    setRenameTarget(session);
+    setRenameTitle(session.title);
+  }, []);
+
+  const handleRenameSession = useCallback(async () => {
+    if (!renameTarget) {
+      return;
+    }
+
+    const title = renameTitle.trim().replace(/\s+/g, " ");
+
+    if (!title) {
+      toast.error("Chat title is required");
+      return;
+    }
+
+    try {
+      const wallet = await getWalletAuth();
+      const updated = await updateChatSessionMetadata(wallet, {
+        sessionId: renameTarget.id,
+        title,
+      });
+      setSessions((current) =>
+        current.map((item) =>
+          item.id === renameTarget.id
+            ? {
+              ...item,
+              ...(updated ?? {}),
+              messages: item.messages,
+              title: updated?.title ?? title,
+            }
+            : item,
+        ),
+      );
+      setRenameTarget(null);
+      setRenameTitle("");
+      dispatchChatSessionsUpdated();
+      toast.success("Chat renamed");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to rename chat.",
+      );
+    }
+  }, [getWalletAuth, renameTarget, renameTitle]);
+
+  const handleConfirmDelete = useCallback(
+    async () => {
+      if (!deleteTarget) {
+        return;
+      }
+
+      try {
+        const wallet = await getWalletAuth();
+        await deleteChatSession(wallet, deleteTarget.id);
+        setSessions((current) =>
+          current.filter((session) => session.id !== deleteTarget.id),
+        );
+        setDeleteTarget(null);
         dispatchChatSessionsUpdated();
         toast.success("Chat deleted");
       } catch (error) {
@@ -170,42 +265,7 @@ export function AppSidebar() {
         );
       }
     },
-    [getWalletAuth],
-  );
-
-  const handleTogglePinSession = useCallback(
-    async (session: ChatSession) => {
-      try {
-        const wallet = await getWalletAuth();
-        const fullSession = await getChatSession(wallet, session.id);
-
-        if (!fullSession) {
-          throw new Error("Chat was not found.");
-        }
-
-        const nextSession = {
-          ...fullSession,
-          pinned: !session.pinned,
-          updatedAt: new Date().toISOString(),
-        };
-
-        await upsertChatSession(wallet, nextSession);
-        setSessions((current) =>
-          current.map((item) =>
-            item.id === session.id
-              ? { ...item, pinned: nextSession.pinned }
-              : item,
-          ),
-        );
-        dispatchChatSessionsUpdated();
-        toast.success(nextSession.pinned ? "Chat pinned" : "Chat unpinned");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Unable to update chat.",
-        );
-      }
-    },
-    [getWalletAuth],
+    [deleteTarget, getWalletAuth],
   );
 
   // if (isReconnecting) {
@@ -220,13 +280,12 @@ export function AppSidebar() {
         </Link>
         <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
           <span
-            className={`size-2 rounded-full ${
-              backendOnline === null
+            className={`size-2 rounded-full ${backendOnline === null
                 ? "bg-muted-foreground/40"
                 : backendOnline
                   ? "bg-emerald-500"
                   : "bg-destructive"
-            }`}
+              }`}
           />
           <span>
             {backendOnline === false ? "Backend offline" : "Backend online"}
@@ -319,8 +378,9 @@ export function AppSidebar() {
                       isConnected ? "No pinned chats" : "Connect wallet first"
                     }
                     isLoading={isLoadingSessions}
-                    onDelete={handleDeleteSession}
-                    onTogglePin={handleTogglePinSession}
+                    onDeleteRequest={setDeleteTarget}
+                    onRenameRequest={openRenameDialog}
+                    onTogglePinned={handleTogglePinned}
                     sessions={pinnedSessions}
                   />
                 </SidebarMenu>
@@ -346,8 +406,9 @@ export function AppSidebar() {
                       isConnected ? "No recent chats" : "Connect wallet first"
                     }
                     isLoading={isLoadingSessions}
-                    onDelete={handleDeleteSession}
-                    onTogglePin={handleTogglePinSession}
+                    onDeleteRequest={setDeleteTarget}
+                    onRenameRequest={openRenameDialog}
+                    onTogglePinned={handleTogglePinned}
                     sessions={recentSessions}
                   />
                 </SidebarMenu>
@@ -377,7 +438,7 @@ export function AppSidebar() {
                 <DropdownMenuContent>
                   <DropdownMenuItem>
                     <CreditCard />
-                    <span>{balanceLabel ?? "—"}</span>
+                    <span>{balanceLabel ?? "-"}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => disconnect.mutate()}>
                     <LogOut />
@@ -399,6 +460,78 @@ export function AppSidebar() {
           </SidebarMenu>
         )}
       </SidebarFooter>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameTarget(null);
+            setRenameTitle("");
+          }
+        }}
+        open={Boolean(renameTarget)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename chat</DialogTitle>
+            <DialogDescription>
+              Update the title shown in pinned and recent chats.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleRenameSession();
+            }}
+          >
+            <Input
+              autoFocus
+              maxLength={120}
+              onChange={(event) => setRenameTitle(event.currentTarget.value)}
+              value={renameTitle}
+            />
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button type="submit">Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        open={Boolean(deleteTarget)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete chat?</DialogTitle>
+            <DialogDescription>
+              This removes the saved session and its messages.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="truncate font-medium">{deleteTarget?.title}</p>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              onClick={() => void handleConfirmDelete()}
+              type="button"
+              variant="destructive"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 }
@@ -406,14 +539,16 @@ export function AppSidebar() {
 function SessionMenuItems({
   emptyLabel,
   isLoading,
-  onDelete,
-  onTogglePin,
+  onDeleteRequest,
+  onRenameRequest,
+  onTogglePinned,
   sessions,
 }: {
   emptyLabel: string;
   isLoading: boolean;
-  onDelete: (sessionId: string) => Promise<void>;
-  onTogglePin: (session: ChatSession) => Promise<void>;
+  onDeleteRequest: (session: ChatSession) => void;
+  onRenameRequest: (session: ChatSession) => void;
+  onTogglePinned: (session: ChatSession) => Promise<void>;
   sessions: ChatSession[];
 }) {
   if (isLoading) {
@@ -452,12 +587,16 @@ function SessionMenuItems({
           </SidebarMenuAction>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" side="right">
-          <DropdownMenuItem onClick={() => void onTogglePin(session)}>
-            {session.pinned ? <PinOffIcon /> : <PinIcon />}
+          <DropdownMenuItem onClick={() => onRenameRequest(session)}>
+            <Pencil />
+            <span>Rename</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void onTogglePinned(session)}>
+            {session.pinned ? <PinOff /> : <Pin />}
             <span>{session.pinned ? "Unpin" : "Pin"}</span>
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => void onDelete(session.id)}
+            onClick={() => onDeleteRequest(session)}
             variant="destructive"
           >
             <Trash2 />

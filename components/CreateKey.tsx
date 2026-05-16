@@ -56,7 +56,7 @@ export default function CreateKey() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState("");
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const loadKeys = useCallback(async () => {
     if (!isConnected) {
@@ -144,14 +144,19 @@ export default function CreateKey() {
     }
   };
 
-  const handleCopySecret = async () => {
-    if (!secret) {
+  const copyToClipboard = async (text: string, id: string) => {
+    if (!text) {
       return;
     }
 
-    await navigator.clipboard.writeText(secret);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      toast.success("Copied to clipboard");
+      window.setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      toast.error("Could not copy to clipboard");
+    }
   };
 
   return (
@@ -232,24 +237,25 @@ export default function CreateKey() {
                 <span className="block">
                   This is the only time the full key is shown.
                 </span>
-                <span className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/30 p-2">
-                  <code className="min-w-0 flex-1 truncate text-xs">
+                <div className="flex min-w-0 items-start gap-2 rounded-md border bg-muted/30 p-2">
+                  <code className="min-w-0 flex-1 break-all font-mono text-xs select-text">
                     {secret}
                   </code>
                   <Button
-                    onClick={() => void handleCopySecret()}
+                    aria-label="Copy API key secret"
+                    onClick={() => void copyToClipboard(secret, "secret")}
                     size="sm"
                     type="button"
                     variant="outline"
                   >
-                    {copied ? (
+                    {copiedId === "secret" ? (
                       <CheckIcon className="size-3" />
                     ) : (
                       <CopyIcon className="size-3" />
                     )}
-                    {copied ? "Copied" : "Copy"}
+                    {copiedId === "secret" ? "Copied" : "Copy"}
                   </Button>
-                </span>
+                </div>
               </AlertDescription>
             </Alert>
           )}
@@ -269,8 +275,27 @@ export default function CreateKey() {
                 keys.map((key) => (
                   <TableRow key={key.id}>
                     <TableCell className="font-medium">{key.name}</TableCell>
-                    <TableCell className="max-w-56 truncate">
-                      {key.maskedKey}
+                    <TableCell className="max-w-56">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <code className="min-w-0 flex-1 truncate font-mono text-xs">
+                          {key.maskedKey}
+                        </code>
+                        <Button
+                          aria-label={`Copy key ${key.name}`}
+                          onClick={() =>
+                            void copyToClipboard(key.maskedKey, key.id)
+                          }
+                          size="icon-xs"
+                          type="button"
+                          variant="ghost"
+                        >
+                          {copiedId === key.id ? (
+                            <CheckIcon className="size-3" />
+                          ) : (
+                            <CopyIcon className="size-3" />
+                          )}
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell className="capitalize">{key.status}</TableCell>
                     <TableCell>{formatDate(key.createdAt)}</TableCell>
