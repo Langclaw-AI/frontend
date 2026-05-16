@@ -1571,6 +1571,18 @@ export async function verifyAutomationEmailLink(
   return payload.settings;
 }
 
+export async function unlinkAutomationEmail(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "unlink-email",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    settings: AutomationSettings;
+  }>(response);
+
+  return payload.settings;
+}
+
 export async function createAutomationTelegramLink(wallet: WalletAuth) {
   const response = await postJson("/api/automation/notifications", {
     action: "create-telegram-link",
@@ -1600,6 +1612,18 @@ export async function pollAutomationTelegramLink(wallet: WalletAuth) {
     settings?: AutomationSettings;
     status: string;
   }>(response);
+}
+
+export async function unlinkAutomationTelegram(wallet: WalletAuth) {
+  const response = await postJson("/api/automation/notifications", {
+    action: "unlink-telegram",
+    wallet,
+  });
+  const payload = await readAutomationResponse<{
+    settings: AutomationSettings;
+  }>(response);
+
+  return payload.settings;
 }
 
 export async function getUsageBalance(wallet: WalletAuth) {

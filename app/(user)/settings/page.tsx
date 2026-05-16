@@ -10,10 +10,10 @@ import {
   ExternalLink,
   Loader2,
   Mail,
-  RefreshCw,
   Save,
   ShieldCheck,
   SlidersHorizontal,
+  Unlink2,
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -51,6 +51,8 @@ import {
   pollAutomationTelegramLink,
   readFriendlyError,
   requestAutomationEmailLink,
+  unlinkAutomationEmail,
+  unlinkAutomationTelegram,
   updateAutomationSettings,
   verifyAutomationEmailLink,
   type AutomationDashboard,
@@ -272,6 +274,26 @@ export default function Page() {
     }
   };
 
+  const handleUnlinkEmail = async () => {
+    setLoading("unlink-email");
+    setError("");
+
+    try {
+      const wallet = await requireWallet();
+      const next = await unlinkAutomationEmail(wallet);
+      setSettings(next);
+      setEmail("");
+      setEmailCode("");
+      toast.success("Email unlinked");
+    } catch (err) {
+      const message = readFriendlyError(err, "Unable to unlink email.");
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading("");
+    }
+  };
+
   const startTelegramPolling = useCallback(
     (expiresAt: string, botUsername: string) => {
       const expiresAtMs = new Date(expiresAt).getTime();
@@ -360,31 +382,22 @@ export default function Page() {
     }
   };
 
-  const handlePollTelegram = async () => {
-    setLoading("poll-telegram");
+  const handleUnlinkTelegram = async () => {
+    setLoading("unlink-telegram");
     setError("");
+    clearTelegramPollTimer();
 
     try {
       const wallet = await requireWallet();
-      const payload = await pollAutomationTelegramLink(wallet);
-
-      if (payload.settings) {
-        setSettings(payload.settings);
-      }
-
-      if (payload.linked) {
-        clearTelegramPollTimer();
-        setTelegramPolling(false);
-        setTelegramStatus("Telegram linked.");
-        setTelegramCommand("");
-        setTelegramDeepLink("");
-      }
-
-      toast.success(
-        payload.linked ? "Telegram linked" : "No Telegram message yet",
-      );
+      const next = await unlinkAutomationTelegram(wallet);
+      setSettings(next);
+      setTelegramPolling(false);
+      setTelegramStatus("");
+      setTelegramCommand("");
+      setTelegramDeepLink("");
+      toast.success("Telegram unlinked");
     } catch (err) {
-      const message = readFriendlyError(err, "Unable to check Telegram link.");
+      const message = readFriendlyError(err, "Unable to unlink Telegram.");
       setError(message);
       toast.error(message);
     } finally {
@@ -547,49 +560,71 @@ export default function Page() {
                 Verify an email address before enabling email alerts.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-              <Input
-                onChange={(event) => setEmail(event.currentTarget.value)}
-                placeholder="alerts@company.com"
-                type="email"
-                value={email}
-              />
-              <Button
-                disabled={loading === "email"}
-                onClick={() => void handleRequestEmail()}
-                variant="outline"
-              >
-                {loading === "email" ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Mail className="size-4" />
-                )}
-                Send code
-              </Button>
-              <StatusText
-                value={
-                  settings?.notificationEmailVerified
-                    ? "Verified"
-                    : settings?.notificationEmailPending
-                      ? "Code sent"
-                      : "Not linked"
-                }
-              />
-              <Input
-                className="md:col-span-2"
-                onChange={(event) => setEmailCode(event.currentTarget.value)}
-                placeholder="Verification code"
-                value={emailCode}
-              />
-              <Button
-                disabled={loading === "verify-email"}
-                onClick={() => void handleVerifyEmail()}
-              >
-                {loading === "verify-email" && (
-                  <Loader2 className="size-4 animate-spin" />
-                )}
-                Verify
-              </Button>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                <Input
+                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  placeholder="alerts@company.com"
+                  type="email"
+                  value={email}
+                />
+                <Button
+                  disabled={loading === "email"}
+                  onClick={() => void handleRequestEmail()}
+                  variant="outline"
+                >
+                  {loading === "email" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Mail className="size-4" />
+                  )}
+                  Send code
+                </Button>
+                <StatusText
+                  value={
+                    settings?.notificationEmailVerified
+                      ? "Verified"
+                      : settings?.notificationEmailPending
+                        ? "Code sent"
+                        : "Not linked"
+                  }
+                />
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                <Input
+                  onChange={(event) => setEmailCode(event.currentTarget.value)}
+                  placeholder="Verification code"
+                  value={emailCode}
+                />
+                <Button
+                  disabled={loading === "verify-email"}
+                  onClick={() => void handleVerifyEmail()}
+                >
+                  {loading === "verify-email" && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  Verify
+                </Button>
+                <Button
+                  disabled={
+                    loading === "unlink-email" ||
+                    !(
+                      settings?.notificationEmail ||
+                      settings?.notificationEmailPending ||
+                      settings?.notificationEmailVerified
+                    )
+                  }
+                  onClick={() => void handleUnlinkEmail()}
+                  variant="outline"
+                >
+                  {loading === "unlink-email" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Unlink2 className="size-4" />
+                  )}
+                  Unlink email
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -615,15 +650,24 @@ export default function Page() {
                   Connect Telegram
                 </Button>
                 <Button
-                  disabled={loading === "poll-telegram" || telegramPolling}
-                  onClick={() => void handlePollTelegram()}
+                  disabled={
+                    loading === "unlink-telegram" ||
+                    !(
+                      settings?.telegramVerified ||
+                      telegramCommand ||
+                      telegramDeepLink ||
+                      telegramPolling
+                    )
+                  }
+                  onClick={() => void handleUnlinkTelegram()}
+                  variant="outline"
                 >
-                  {loading === "poll-telegram" ? (
+                  {loading === "unlink-telegram" ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
-                    <RefreshCw className="size-4" />
+                    <Unlink2 className="size-4" />
                   )}
-                  Check link
+                  Unlink Telegram
                 </Button>
                 {telegramDeepLink && (
                   <Button asChild variant="outline">
