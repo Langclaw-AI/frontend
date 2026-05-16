@@ -6,9 +6,9 @@ import {
   type LangclawUIMessage,
 } from "@/lib/chat-utils";
 import {
-  getSignalGraphApiUrl,
+  getLangclawApiUrl,
   readFriendlyError,
-  SignalGraphApiError,
+  LangclawApiError,
   type ChatMode,
   type ChatStreamChunk,
   type DirectChatPayload,
@@ -20,7 +20,7 @@ import {
   type StoredChatMessage,
   type WalletAuth,
   type WorkflowProgressEvent,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import type { ChatTransport, UIMessageChunk } from "ai";
 
 type ChatRequestBody = {
@@ -174,7 +174,7 @@ async function pipeBackendStreamToUIMessageChunks({
 
     updateMetadata(metadata);
 
-    const response = await fetch(getSignalGraphApiUrl("/api/chat/stream"), {
+    const response = await fetch(getLangclawApiUrl("/api/chat/stream"), {
       body: JSON.stringify({
         message,
         messages: toBackendMessages(messages),
@@ -308,7 +308,7 @@ async function pipeBackendStreamToUIMessageChunks({
     }
 
     const message =
-      error instanceof Error ? error.message : "SignalGraph request failed.";
+      error instanceof Error ? error.message : "Langclaw request failed.";
 
     appendText(text ? `\n\n${message}` : message);
     closeReasoningPart();
@@ -407,13 +407,13 @@ async function readErrorResponse(response: Response) {
   const message = payload?.error || `Request failed with status ${response.status}.`;
 
   return readFriendlyError(
-    new SignalGraphApiError(message, response.status),
+    new LangclawApiError(message, response.status),
     message,
   );
 }
 
 function readErrorMessage(value: unknown) {
-  return typeof value === "string" ? value : "SignalGraph request failed.";
+  return typeof value === "string" ? value : "Langclaw request failed.";
 }
 
 function readDirectPayload(value: unknown): DirectChatPayload {
@@ -668,7 +668,7 @@ function isWorkflowStatus(value: unknown): value is WorkflowProgressEvent["statu
 }
 
 function formatProgressReasoning(event: WorkflowProgressEvent) {
-  const agent = event.agent || "SignalGraph";
+  const agent = event.agent || "Langclaw";
   const summary = event.summary || "Working on the next step.";
   const status = event.status ? ` [${event.status}]` : "";
 

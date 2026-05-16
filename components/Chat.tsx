@@ -87,7 +87,7 @@ import {
   isWorkflowStreaming,
   StatusPill,
   WorkflowPlan,
-} from "@/components/SignalGraphResult";
+} from "@/components/LangclawResult";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -121,7 +121,7 @@ import {
   type ChatSession,
   type StoredChatMessage,
   upsertChatSession,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import { useWalletSession } from "@/hooks/use-wallet-session";
 import {
   DEFAULT_CHAT_MODEL_ID,
@@ -526,7 +526,7 @@ const Chat = ({ sessionId }: ChatProps) => {
                   <h3 className="font-medium text-sm">Start a Langclaw chat</h3>
                   <p className="text-muted-foreground text-sm">
                     {isConnected
-                      ? "Ask directly, run SignalGraph research, or use on-chain tools."
+                      ? "Ask directly, run Langclaw research, or use on-chain tools."
                       : "Connect wallet from the sidebar to chat and load saved sessions."}
                   </p>
                 </div>
@@ -912,8 +912,8 @@ function MessageDetails({
           <ReasoningTrigger
             getThinkingMessage={(isStreaming, duration) =>
               isStreaming
-                ? "SignalGraph is reasoning through live evidence..."
-                : `SignalGraph reasoning${duration ? ` (${duration}s)` : ""}`
+                ? "Langclaw is reasoning through live evidence..."
+                : `Langclaw reasoning${duration ? ` (${duration}s)` : ""}`
             }
           />
           <ReasoningContent>{reasoningText}</ReasoningContent>

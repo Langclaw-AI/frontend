@@ -70,7 +70,7 @@ import {
   type ZeroGChatCompletionPayload,
   type ZeroGChatStreamResult,
   type ZeroGImagePayload,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 type LoadingKey =
   | ""

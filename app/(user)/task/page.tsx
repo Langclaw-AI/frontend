@@ -62,7 +62,7 @@ import {
   type AutomationTask,
   type AutomationTaskInput,
   type AutomationTriggerType,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 type TaskForm = {
   eventName: string;

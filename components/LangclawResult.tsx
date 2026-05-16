@@ -71,22 +71,22 @@ import type {
   DiscoverPayload,
   WorkflowProgressEvent,
   ZeroGProof,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import { cn } from "@/lib/utils";
 
-type SignalGraphResultProps = {
+type LangclawResultProps = {
   className?: string;
   events?: WorkflowProgressEvent[];
   payload: DiscoverPayload;
   showWorkflow?: boolean;
 };
 
-export function SignalGraphResult({
+export function LangclawResult({
   className,
   events = [],
   payload,
   showWorkflow = true,
-}: SignalGraphResultProps) {
+}: LangclawResultProps) {
   const workflowEvents = events.length
     ? events
     : orchestrationStepsToEvents(payload);
@@ -201,7 +201,7 @@ export function WorkflowPlan({ events }: { events: WorkflowProgressEvent[] }) {
     >
       <PlanHeader>
         <div className="space-y-1">
-          <PlanTitle>SignalGraph workflow</PlanTitle>
+          <PlanTitle>Langclaw workflow</PlanTitle>
           <PlanDescription>
             {latest?.summary ?? "Preparing agent workflow."}
           </PlanDescription>

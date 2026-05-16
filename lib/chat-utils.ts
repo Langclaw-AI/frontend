@@ -6,7 +6,7 @@ import type {
   OnChainToolFinalPayload,
   StoredChatMessage,
   WorkflowProgressEvent,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import type { UIMessage } from "ai";
 
 export type LangclawMessageMetadata = {
@@ -274,7 +274,7 @@ export function appendProgressSummary(events: WorkflowProgressEvent[]) {
   const latest = events.at(-1);
 
   if (!latest) {
-    return "Starting SignalGraph workflow...";
+    return "Starting Langclaw workflow...";
   }
 
   return `${latest.agent}: ${latest.summary}`;

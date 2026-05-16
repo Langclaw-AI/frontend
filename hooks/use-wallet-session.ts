@@ -9,7 +9,7 @@ import {
   requestWalletChallenge,
   type WalletAuth,
   type WalletAuthPurpose,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 export const WALLET_AUTH_UPDATED_EVENT = "langclaw-wallet-auth-updated";
 

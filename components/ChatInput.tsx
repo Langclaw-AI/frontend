@@ -44,7 +44,7 @@ import {
   readFriendlyError,
   type ChatMode,
   upsertChatSession,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import { useWalletSession } from "@/hooks/use-wallet-session";
 import {
   DEFAULT_CHAT_MODEL_ID,

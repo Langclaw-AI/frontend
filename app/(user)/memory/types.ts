@@ -2,4 +2,4 @@ export type {
   MemoryCategory,
   MemoryItem,
   MemoryStatus,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   listZeroGModels,
   type RouterModel,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 export const DEFAULT_CHAT_MODEL_ID = "0GM-1.0-35B-A3B";
 export const DEFAULT_IMAGE_MODEL_ID = "z-image";

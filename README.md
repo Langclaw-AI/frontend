@@ -17,8 +17,8 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-The frontend talks to the SignalGraph backend through
-`NEXT_PUBLIC_SIGNALGRAPH_API_URL`. By default this points to
+The frontend talks to the Langclaw backend through
+`NEXT_PUBLIC_LANGCLAW_API_URL`. By default this points to
 `http://localhost:3001`, matching the backend server.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.

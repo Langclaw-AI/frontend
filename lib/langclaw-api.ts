@@ -974,30 +974,33 @@ type MemoryResponse =
       stats?: MemoryStats;
     };
 
-const DEFAULT_BACKEND_URL = "http://localhost:3001";
+const DEFAULT_BACKEND_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://nanta.tech:3002"
+    : "http://localhost:3001";
 
 export const CHAT_SESSIONS_UPDATED_EVENT = "langclaw-chat-sessions-updated";
 
-export class SignalGraphApiError extends Error {
+export class LangclawApiError extends Error {
   status: number;
 
   constructor(message: string, status: number) {
     super(message);
-    this.name = "SignalGraphApiError";
+    this.name = "LangclawApiError";
     this.status = status;
   }
 }
 
-export function getSignalGraphApiBaseUrl() {
+export function getLangclawApiBaseUrl() {
   return (
-    process.env.NEXT_PUBLIC_SIGNALGRAPH_API_URL?.replace(/\/+$/, "") ||
+    process.env.NEXT_PUBLIC_LANGCLAW_API_URL?.replace(/\/+$/, "") ||
     DEFAULT_BACKEND_URL
   );
 }
 
-export function getSignalGraphApiUrl(path: string) {
+export function getLangclawApiUrl(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${getSignalGraphApiBaseUrl()}${normalizedPath}`;
+  return `${getLangclawApiBaseUrl()}${normalizedPath}`;
 }
 
 export async function checkBackendHealth() {
@@ -1019,11 +1022,11 @@ export async function requestWalletChallenge(input: {
   }>(response);
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   if (!payload.challenge) {
-    throw new SignalGraphApiError("Wallet challenge was not returned.", 500);
+    throw new LangclawApiError("Wallet challenge was not returned.", 500);
   }
 
   return payload.challenge;
@@ -1038,11 +1041,11 @@ export async function createWalletSession(wallet: WalletAuth) {
   }>(response);
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   if (!payload.wallet?.sessionToken) {
-    throw new SignalGraphApiError("Wallet session was not returned.", 500);
+    throw new LangclawApiError("Wallet session was not returned.", 500);
   }
 
   return payload.wallet;
@@ -1241,7 +1244,7 @@ export async function createApiKey(wallet: WalletAuth, name: string) {
   const response = await apiKeysRequest({ action: "create", name, wallet });
 
   if (!response.key || !response.secret) {
-    throw new SignalGraphApiError("API key was not returned.", 500);
+    throw new LangclawApiError("API key was not returned.", 500);
   }
 
   return {
@@ -1255,7 +1258,7 @@ export async function revokeApiKey(wallet: WalletAuth, keyId: string) {
   const response = await apiKeysRequest({ action: "revoke", keyId, wallet });
 
   if (!response.key) {
-    throw new SignalGraphApiError("API key was not returned.", 500);
+    throw new LangclawApiError("API key was not returned.", 500);
   }
 
   return response.key;
@@ -1285,7 +1288,7 @@ export async function setMemoryStatus(
   });
 
   if (!response.memory) {
-    throw new SignalGraphApiError("Memory was not returned.", 500);
+    throw new LangclawApiError("Memory was not returned.", 500);
   }
 
   return response.memory;
@@ -1775,7 +1778,7 @@ export async function transcribeZeroGAudio({
   }
 
   const response = await fetch(
-    getSignalGraphApiUrl("/api/0g/audio/transcriptions"),
+    getLangclawApiUrl("/api/0g/audio/transcriptions"),
     {
       body: formData,
       method: "POST",
@@ -1839,14 +1842,14 @@ async function chatSessionsRequest(body: {
   const payload = await readJsonResponse<ChatSessionsResponse>(response);
 
   if (!payload.configured) {
-    throw new SignalGraphApiError(
+    throw new LangclawApiError(
       payload.error || "Chat session storage is not configured.",
       503,
     );
   }
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   return payload;
@@ -1862,14 +1865,14 @@ async function apiKeysRequest(body: {
   const payload = await readJsonResponse<ApiKeysResponse>(response);
 
   if (!payload.configured) {
-    throw new SignalGraphApiError(
+    throw new LangclawApiError(
       payload.error || "API keys are not configured.",
       503,
     );
   }
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   return payload;
@@ -1886,14 +1889,14 @@ async function memoryRequest(body: {
   const payload = await readJsonResponse<MemoryResponse>(response);
 
   if (!payload.configured) {
-    throw new SignalGraphApiError(
+    throw new LangclawApiError(
       payload.error || "Memory storage is not configured.",
       503,
     );
   }
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   return payload;
@@ -1908,14 +1911,14 @@ async function memorySettingsRequest(body: {
   const payload = await readJsonResponse<MemoryResponse>(response);
 
   if (!payload.configured) {
-    throw new SignalGraphApiError(
+    throw new LangclawApiError(
       payload.error || "Memory settings are not configured.",
       503,
     );
   }
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   return payload;
@@ -1925,7 +1928,7 @@ async function readAutomationResponse<T>(response: Response) {
   const payload = await readJsonResponse<AutomationResponse<T>>(response);
 
   if (payload.error) {
-    throw new SignalGraphApiError(payload.error, response.status);
+    throw new LangclawApiError(payload.error, response.status);
   }
 
   return payload as T;
@@ -1933,7 +1936,7 @@ async function readAutomationResponse<T>(response: Response) {
 
 function requireMemorySettings(settings?: MemorySettings) {
   if (!settings) {
-    throw new SignalGraphApiError("Memory settings were not returned.", 500);
+    throw new LangclawApiError("Memory settings were not returned.", 500);
   }
 
   return settings;
@@ -1950,7 +1953,7 @@ function buildMemoryStats(memories: MemoryItem[]): MemoryStats {
 
 export function readFriendlyError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
-  const status = error instanceof SignalGraphApiError ? error.status : 0;
+  const status = error instanceof LangclawApiError ? error.status : 0;
 
   if (status === 402 || /insufficient\s+0g\s+balance/i.test(message)) {
     return "Insufficient 0G balance. Add 0G credits before running this request.";
@@ -1976,7 +1979,7 @@ async function getRequest(
   headers?: Record<string, string>,
   signal?: AbortSignal,
 ) {
-  return fetch(getSignalGraphApiUrl(path), {
+  return fetch(getLangclawApiUrl(path), {
     cache: "no-store",
     headers,
     signal,
@@ -2010,7 +2013,7 @@ function walletAuthHeaders(wallet: WalletAuth) {
 }
 
 async function postJson(path: string, body: unknown, signal?: AbortSignal) {
-  return fetch(getSignalGraphApiUrl(path), {
+  return fetch(getLangclawApiUrl(path), {
     body: JSON.stringify(body),
     headers: {
       "Content-Type": "application/json",
@@ -2026,7 +2029,7 @@ async function readJsonResponse<T>(response: Response) {
   } | null;
 
   if (!response.ok) {
-    throw new SignalGraphApiError(
+    throw new LangclawApiError(
       normalizeError(payload?.error) ||
         `Request failed with status ${response.status}.`,
       response.status,
@@ -2046,7 +2049,7 @@ async function readNdjson<TChunk>(
   }
 
   if (!response.body) {
-    throw new SignalGraphApiError(
+    throw new LangclawApiError(
       "Streaming response was empty.",
       response.status,
     );
@@ -2086,7 +2089,7 @@ async function readNdjson<TChunk>(
 }
 
 function readErrorMessage(value: unknown) {
-  return normalizeError(value) || "SignalGraph request failed.";
+  return normalizeError(value) || "Langclaw request failed.";
 }
 
 function normalizeError(value: unknown) {

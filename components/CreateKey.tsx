@@ -46,7 +46,7 @@ import {
   revokeApiKey,
   type ApiKeyRecord,
   type WalletAuthPurpose,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 export default function CreateKey() {
   const { getWalletAuth, isConnected, isSigning, openWalletModal } =

@@ -51,7 +51,7 @@ import {
   type UsageDepositVerifyPayload,
   type UsageQuotePayload,
   type UsageWithdrawRequestPayload,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 const usageVaultAbi = [
   {

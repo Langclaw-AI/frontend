@@ -57,7 +57,7 @@ import {
   type MemorySettings,
   type UsageBalancePayload,
   updateMemorySettings,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 
 export default function Page() {
   const { getWalletAuth, isConnected, isSigning, openWalletModal } =

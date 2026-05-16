@@ -76,7 +76,7 @@ import {
   listChatSessions,
   type ChatSession,
   updateChatSessionMetadata,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import {
   useWalletSession,
   WALLET_AUTH_UPDATED_EVENT,

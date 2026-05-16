@@ -32,7 +32,7 @@ import {
   type MemoryItem,
   type MemoryStats,
   type MemoryStatus,
-} from "@/lib/signalgraph-api";
+} from "@/lib/langclaw-api";
 import { MemoryDataTable } from "./data-table";
 
 export default function Page() {
