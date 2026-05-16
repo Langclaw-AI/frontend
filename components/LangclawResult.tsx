@@ -509,6 +509,7 @@ function getZeroGToolState(zeroG: ZeroGProof) {
   if (
     zeroG.storage.status === "uploaded" ||
     zeroG.chain.status === "anchored" ||
+    zeroG.chain.status === "pending" ||
     zeroG.storage.status === "prepared" ||
     zeroG.chain.status === "prepared"
   ) {
