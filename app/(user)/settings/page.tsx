@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   Bell,
   Bot,
   BrainCircuit,
   Database,
+  ExternalLink,
   Loader2,
   Mail,
+  RefreshCw,
   Save,
   ShieldCheck,
   SlidersHorizontal,
@@ -71,8 +73,14 @@ export default function Page() {
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [telegramCommand, setTelegramCommand] = useState("");
+  const [telegramDeepLink, setTelegramDeepLink] = useState("");
+  const [telegramBotUsername, setTelegramBotUsername] =
+    useState("langclawaibot");
+  const [telegramPolling, setTelegramPolling] = useState(false);
+  const [telegramStatus, setTelegramStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState("");
+  const telegramPollTimerRef = useRef<number | null>(null);
 
   const loadSettings = useCallback(async () => {
     if (!isConnected) {
@@ -114,6 +122,17 @@ export default function Page() {
 
     return () => window.clearTimeout(timeoutId);
   }, [loadSettings]);
+
+  const clearTelegramPollTimer = useCallback(() => {
+    if (telegramPollTimerRef.current !== null) {
+      window.clearTimeout(telegramPollTimerRef.current);
+      telegramPollTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearTelegramPollTimer();
+  }, [clearTelegramPollTimer]);
 
   const requireWallet = async () => {
     if (!isConnected) {
@@ -253,16 +272,86 @@ export default function Page() {
     }
   };
 
+  const startTelegramPolling = useCallback(
+    (expiresAt: string, botUsername: string) => {
+      const expiresAtMs = new Date(expiresAt).getTime();
+      clearTelegramPollTimer();
+      setTelegramPolling(true);
+      setTelegramStatus(`Waiting for @${botUsername} confirmation...`);
+
+      const poll = async () => {
+        if (Date.now() >= expiresAtMs) {
+          setTelegramPolling(false);
+          setTelegramStatus("Telegram link expired. Create a new link.");
+          return;
+        }
+
+        try {
+          const wallet = await getWalletAuth();
+          const payload = await pollAutomationTelegramLink(wallet);
+
+          if (payload.settings) {
+            setSettings(payload.settings);
+          }
+
+          if (payload.linked) {
+            setTelegramPolling(false);
+            setTelegramStatus("Telegram linked.");
+            setTelegramCommand("");
+            setTelegramDeepLink("");
+            toast.success("Telegram linked");
+            return;
+          }
+
+          setTelegramStatus(`Waiting for @${botUsername} confirmation...`);
+          telegramPollTimerRef.current = window.setTimeout(poll, 3000);
+        } catch (err) {
+          const message = readFriendlyError(
+            err,
+            "Unable to check Telegram link.",
+          );
+          setTelegramPolling(false);
+          setTelegramStatus(message);
+          setError(message);
+          toast.error(message);
+        }
+      };
+
+      telegramPollTimerRef.current = window.setTimeout(poll, 1500);
+    },
+    [clearTelegramPollTimer, getWalletAuth],
+  );
+
   const handleTelegramLink = async () => {
     setLoading("telegram");
     setError("");
+    clearTelegramPollTimer();
+
+    const telegramWindow = window.open("about:blank", "_blank");
 
     try {
       const wallet = await requireWallet();
       const link = await createAutomationTelegramLink(wallet);
       setTelegramCommand(link.command);
-      toast.success("Telegram link code created");
+      setTelegramDeepLink(link.deepLink);
+      setTelegramBotUsername(link.botUsername);
+      setTelegramStatus(`Waiting for @${link.botUsername} confirmation...`);
+
+      if (telegramWindow) {
+        telegramWindow.opener = null;
+        telegramWindow.location.href = link.deepLink;
+      } else {
+        setTelegramStatus(
+          `Open @${link.botUsername} and send the fallback command below.`,
+        );
+      }
+
+      startTelegramPolling(link.expiresAt, link.botUsername);
+      toast.success("Telegram link opened", {
+        description: `Confirm the chat with @${link.botUsername}.`,
+      });
     } catch (err) {
+      telegramWindow?.close();
       const message = readFriendlyError(err, "Unable to create Telegram link.");
       setError(message);
       toast.error(message);
@@ -281,6 +370,14 @@ export default function Page() {
 
       if (payload.settings) {
         setSettings(payload.settings);
+      }
+
+      if (payload.linked) {
+        clearTelegramPollTimer();
+        setTelegramPolling(false);
+        setTelegramStatus("Telegram linked.");
+        setTelegramCommand("");
+        setTelegramDeepLink("");
       }
 
       toast.success(
@@ -500,40 +597,62 @@ export default function Page() {
             <CardHeader>
               <CardTitle>Telegram</CardTitle>
               <CardDescription>
-                Link a chat to receive automation alerts.
+                Open @{telegramBotUsername} and verify this wallet for automation alerts.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 <Button
-                  disabled={loading === "telegram"}
+                  disabled={loading === "telegram" || telegramPolling}
                   onClick={() => void handleTelegramLink()}
                   variant="outline"
                 >
-                  {loading === "telegram" && (
+                  {loading === "telegram" || telegramPolling ? (
                     <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Bot className="size-4" />
                   )}
-                  Create link code
+                  Connect Telegram
                 </Button>
                 <Button
-                  disabled={loading === "poll-telegram"}
+                  disabled={loading === "poll-telegram" || telegramPolling}
                   onClick={() => void handlePollTelegram()}
                 >
-                  {loading === "poll-telegram" && (
+                  {loading === "poll-telegram" ? (
                     <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
                   )}
                   Check link
                 </Button>
+                {telegramDeepLink && (
+                  <Button asChild variant="outline">
+                    <a
+                      href={telegramDeepLink}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <ExternalLink className="size-4" />
+                      Open Telegram
+                    </a>
+                  </Button>
+                )}
               </div>
               {telegramCommand && (
-                <code className="block rounded-md border bg-muted/40 p-3 text-sm">
-                  {telegramCommand}
-                </code>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Fallback command
+                  </p>
+                  <code className="block rounded-md border bg-muted/40 p-3 text-sm">
+                    {telegramCommand}
+                  </code>
+                </div>
               )}
               <p className="text-sm text-muted-foreground">
-                {settings?.telegramVerified
-                  ? `Linked${settings.telegramUsername ? ` to @${settings.telegramUsername}` : ""}.`
-                  : "Not linked yet."}
+                {telegramStatus ||
+                  (settings?.telegramVerified
+                    ? `Linked${settings.telegramUsername ? ` to @${settings.telegramUsername}` : ""}.`
+                    : "Not linked yet.")}
               </p>
             </CardContent>
           </Card>

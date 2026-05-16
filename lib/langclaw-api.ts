@@ -1577,7 +1577,13 @@ export async function createAutomationTelegramLink(wallet: WalletAuth) {
     wallet,
   });
   const payload = await readAutomationResponse<{
-    link: { code: string; command: string; expiresAt: string };
+    link: {
+      botUsername: string;
+      code: string;
+      command: string;
+      deepLink: string;
+      expiresAt: string;
+    };
   }>(response);
 
   return payload.link;
